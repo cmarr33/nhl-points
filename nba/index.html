@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA PRA Projection Agent</title>
+<style>
+  :root {
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #242422; --grid: #2c2c2a; --axis: #383835;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --accent: #3987e5; --good: #0ca30c; --bad: #e66767;
+    /* sequential blue ramp for probability buckets (dark surface: low = dark, high = light) */
+    --b0: #184f95; --b1: #256abf; --b2: #3987e5; --b3: #86b6ef;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 24px; border-bottom: 1px solid var(--grid); position: sticky; top: 0; background: var(--page); z-index: 5; }
+  h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  h1 small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+  .agent { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12px; margin-left: auto; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--good); box-shadow: 0 0 0 3px rgba(12,163,12,.2); }
+  .dot.busy { background: #fab219; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  input, select, button { font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: 6px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  main { padding: 20px 24px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; max-width: 1500px; margin: 0 auto; }
+  .panel { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+
+  /* games strip */
+  .games { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .game { flex: 0 0 auto; background: var(--surface); border: 1px solid transparent; border-radius: 8px; padding: 8px 12px; cursor: pointer; min-width: 150px; }
+  .game.active { border-color: var(--accent); }
+  .game .row { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+  .game img { width: 20px; height: 20px; }
+  .game .st { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .game .sc { margin-left: auto; color: var(--ink-2); }
+
+  /* slider */
+  .slider { position: relative; overflow: hidden; }
+  .track { display: flex; transition: transform .5s ease; }
+  .slide { flex: 0 0 100%; display: grid; grid-template-columns: auto 160px minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 8px 56px; }
+  .rank { font-size: 56px; font-weight: 800; color: var(--axis); width: 90px; text-align: right; }
+  .slide .hs { width: 160px; height: 116px; object-fit: cover; object-position: top; background: var(--surface-2); border-radius: 8px; }
+  .slide .nm { font-size: 24px; font-weight: 700; }
+  .slide .mu { color: var(--ink-2); display: flex; align-items: center; gap: 6px; margin: 4px 0 10px; }
+  .slide .mu img { width: 22px; height: 22px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .big { text-align: right; }
+  .big .pct { font-size: 44px; font-weight: 800; line-height: 1; }
+  .big .lbl { color: var(--muted); font-size: 12px; }
+  .big .proj { font-size: 20px; font-weight: 650; margin-top: 8px; }
+  .big .pra { color: var(--ink-2); font-size: 12px; }
+  .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 50%; padding: 0; font-size: 18px; }
+  .nav.prev { left: 8px; } .nav.next { right: 8px; }
+  .dots { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+  .dots button { width: 22px; height: 6px; padding: 0; border-radius: 3px; border: 0; background: var(--axis); }
+  .dots button.on { background: var(--accent); }
+  .ring { width: 72px; height: 72px; }
+
+  /* filters */
+  .filters { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; }
+  .fg { display: flex; flex-direction: column; gap: 6px; }
+  .fg > span { color: var(--muted); font-size: 12px; }
+  .buckets { display: flex; gap: 6px; }
+  .bucket { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--axis); cursor: pointer; user-select: none; color: var(--ink-2); }
+  .bucket input { display: none; }
+  .bucket .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .bucket.on { color: var(--ink); background: var(--surface-2); border-color: var(--muted); }
+  .bucket:not(.on) .sw { opacity: .25; }
+  .bucket .ct { color: var(--muted); font-size: 12px; }
+  label.ck { display: flex; gap: 6px; align-items: center; color: var(--ink-2); padding: 6px 0; }
+
+  /* table */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px; border-bottom: 1px solid var(--axis); cursor: pointer; white-space: nowrap; user-select: none; }
+  th.num, td.num { text-align: right; }
+  th.sorted { color: var(--ink); }
+  td { padding: 8px; border-bottom: 1px solid var(--grid); vertical-align: middle; white-space: nowrap; }
+  tr:hover td { background: var(--surface-2); }
+  .pl { display: flex; align-items: center; gap: 10px; }
+  .pl img { width: 40px; height: 30px; object-fit: cover; object-position: top; border-radius: 4px; background: var(--surface-2); }
+  .pl .sub { color: var(--muted); font-size: 12px; }
+  .mu-cell { display: flex; align-items: center; gap: 6px; }
+  .mu-cell img { width: 18px; height: 18px; }
+  .ha { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); }
+  .pos { color: #3fbf3f; } .neg { color: var(--bad); } .zero { color: var(--muted); }
+  .sub2 { color: var(--muted); font-size: 12px; }
+  .prob { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .bar { width: 90px; height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+  .inj { font-size: 11px; color: #fab219; margin-left: 4px; }
+  .projv { font-weight: 700; font-size: 15px; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  #tip { position: fixed; pointer-events: none; background: var(--surface-2); border: 1px solid var(--axis); border-radius: 8px; padding: 10px 12px; font-size: 12px; display: none; z-index: 10; max-width: 300px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  #tip .t { font-weight: 600; margin-bottom: 4px; color: var(--ink); }
+  #tip div { color: var(--ink-2); }
+  details { color: var(--ink-2); }
+  details summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+  details li { margin: 4px 0; }
+  .loading { color: var(--muted); padding: 40px; text-align: center; }
+  .sport-tabs { display: flex; gap: 4px; padding: 3px; background: var(--surface); border: 1px solid var(--axis); border-radius: 9px; }
+  .sport-tabs a { color: var(--ink-2); text-decoration: none; padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+  .sport-tabs a:hover { color: var(--ink); }
+  .sport-tabs a[aria-current="page"] { background: var(--accent); color: #fff; }
+  .combos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 20px; }
+  .cdesc { margin: -6px 0 12px; }
+  .combo { border: 1px solid var(--grid); border-radius: 8px; margin-bottom: 12px; }
+  .combo:last-child { margin-bottom: 0; }
+  .combo-h { display: flex; align-items: baseline; gap: 12px; padding: 10px 12px; background: var(--surface-2); border-radius: 8px 8px 0 0; }
+  .combo-h b { font-size: 14px; }
+  .combo-h .odds { margin-left: auto; color: var(--ink-2); font-size: 12px; }
+  .combo-h .odds b { color: var(--ink); font-size: 16px; }
+  .leg { display: grid; grid-template-columns: 30px minmax(0, 1fr) 70px 64px 44px; gap: 10px; align-items: center; padding: 6px 12px; border-top: 1px solid var(--grid); }
+  .leg img { width: 30px; height: 22px; object-fit: cover; object-position: top; border-radius: 3px; background: var(--surface-2); }
+  .leg .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .leg .who .sub2 { display: block; }
+  .pick { font-size: 11px; font-weight: 700; padding: 2px 0; border-radius: 4px; text-align: center; }
+  .pick.over { background: rgba(12,163,12,.18); color: #3fbf3f; }
+  .pick.under { background: rgba(230,103,103,.16); color: var(--bad); }
+  .leg .num { text-align: right; }
+  @media (max-width: 900px) { .slide { grid-template-columns: 1fr; text-align: center; padding: 8px 48px; } .rank, .big { text-align: center; width: auto; } .slide .hs { margin: 0 auto; } .slide .mu, .chips { justify-content: center; } }
+</style>
+</head>
+<body>
+<header>
+  <nav class="sport-tabs"><a href="https://cmarr33.github.io/nhl-points/">NHL Points</a><a href="./" aria-current="page">NBA PRA</a></nav>
+  <h1>NBA PRA Projection Agent <small>Points + Rebounds + Assists</small></h1>
+  <input type="date" id="date">
+  <button id="refresh" title="Pull fresh data from ESPN">Refresh</button>
+  <div class="agent"><span class="dot" id="adot"></span><span id="astatus">Starting…</span></div>
+</header>
+<main>
+  <div class="games" id="games"></div>
+
+  <section class="panel">
+    <h2>Top 10 Projected <span class="sub2" id="topsub"></span></h2>
+    <div class="slider" id="slider">
+      <div class="track" id="track"></div>
+      <button class="nav prev" id="prev" aria-label="Previous">‹</button>
+      <button class="nav next" id="next" aria-label="Next">›</button>
+    </div>
+    <div class="dots" id="dots"></div>
+  </section>
+
+  <div class="combos">
+    <section class="panel">
+      <h2>High Risk - High Reward</h2>
+      <p class="sub2 cdesc">Volatile players with the biggest projected edge over or under their own PRA line. Fewer combos hit, but each one pays more.</p>
+      <div id="comboHigh"></div>
+    </section>
+    <section class="panel">
+      <h2>Low Risk - Low Reward</h2>
+      <p class="sub2 cdesc">The model's most confident over/under calls against each player's own PRA line. More likely to hit, but pays less.</p>
+      <div id="comboLow"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="filters">
+      <div class="fg"><span>Scoring probability (multi-select)</span><div class="buckets" id="buckets"></div></div>
+      <div class="fg"><span>Probability line</span>
+        <div style="display:flex;gap:6px">
+          <select id="lineMode"><option value="fixed">Fixed PRA line</option><option value="player">Player's own line (baseline)</option></select>
+          <input type="number" id="lineVal" value="24.5" step="1" style="width:80px">
+        </div>
+      </div>
+      <div class="fg"><span>Min. minutes/game</span><input type="number" id="minMpg" value="15" step="1" style="width:80px"></div>
+      <div class="fg"><span>Search</span><input type="search" id="q" placeholder="Player or team"></div>
+      <div class="fg"><label class="ck"><input type="checkbox" id="hideOut" checked> Hide injured (Out)</label></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>All projections <span class="sub2" id="count"></span></h2>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"><tr><td class="loading" colspan="10">Loading projections… first load of a day pulls every player's game log (≈30s).</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <details>
+      <summary>How the model works</summary>
+      <ul>
+        <li><b>Baseline</b> — recency-weighted PRA over this season and last (half-life 12 games). Only games before the selected date are used.</li>
+        <li><b>Elo momentum</b> — every player starts at 1500. Each game is a "match" against the player's own expectation (a slow ~20-game average); beating it raises the rating, falling short lowers it (K = 32). Every +100 Elo adds ¼ of the player's standard deviation to the projection.</li>
+        <li><b>Head-to-head</b> — the player's average PRA against tonight's opponent, shrunk toward the baseline by 3 pseudo-games so 1–2 meetings don't dominate.</li>
+        <li><b>Home / away</b> — home PRA minus away PRA is the player's split (H−A). Tonight's venue adjustment is the venue average minus baseline, shrunk by 10 pseudo-games.</li>
+        <li><b>Projection</b> = baseline + momentum + head-to-head + venue. Points, rebounds and assists are scaled from the player's recent mix.</li>
+        <li><b>Probability</b> = chance the player goes over the line, using a normal distribution around the projection with the player's own game-to-game standard deviation. Use a fixed line (e.g. 24.5) or each player's own baseline rounded to a .5 line.</li>
+        <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's own line (baseline rounded to .5), whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Combos use at most one player per team and two per game. Hit chance multiplies the five legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance.</li>
+        <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and again at 6:00 AM, after late games are final. An open page moves to the new day by itself and reloads every 10 minutes.</li>
+      </ul>
+      <p class="sub2">Data: ESPN public endpoints. No sportsbook lines are used. Projections are statistical estimates, not guarantees.</p>
+    </details>
+  </section>
+</main>
+<div id="tip"></div>
+
+<script>window.STATIC_DATA = "data/";</script>
+<script>
+const BUCKETS = [
+  { key: 0, label: "0–25%", lo: 0, hi: 25, color: "var(--b0)" },
+  { key: 1, label: "26–50%", lo: 26, hi: 50, color: "var(--b1)" },
+  { key: 2, label: "51–70%", lo: 51, hi: 70, color: "var(--b2)" },
+  { key: 3, label: "71%+", lo: 71, hi: 100, color: "var(--b3)" },
+];
+const COLS = [
+  { k: "name", t: "Player" },
+  { k: "opp", t: "Matchup" },
+  { k: "proj", t: "Proj PRA", num: 1 },
+  { k: "baseline", t: "Baseline", num: 1 },
+  { k: "elo", t: "Elo momentum", num: 1 },
+  { k: "matchup", t: "vs Opponent", num: 1 },
+  { k: "venue", t: "Home/Away ±", num: 1 },
+  { k: "line", t: "Line", num: 1 },
+  { k: "prob", t: "Probability", num: 1 },
+];
+const S = { data: null, sort: "prob", dir: -1, buckets: new Set([0, 1, 2, 3]), game: null, slide: 0, timer: null };
+const $ = id => document.getElementById(id);
+const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+$("date").value = today.toISOString().slice(0, 10);
+
+function erf(x) { // Abramowitz-Stegun 7.1.26
+  const s = Math.sign(x); x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y;
+}
+const cdf = z => 0.5 * (1 + erf(z / Math.SQRT2));
+const bucketOf = pct => pct <= 25 ? 0 : pct <= 50 ? 1 : pct <= 70 ? 2 : 3;
+const fmt = (v, d = 1) => v == null ? "—" : v.toFixed(d);
+const sgn = (v, d = 1) => v == null ? "—" : (v > 0.05 ? "+" : "") + v.toFixed(d);
+const cls = v => v == null || Math.abs(v) < 0.05 ? "zero" : v > 0 ? "pos" : "neg";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function enrich() {
+  const mode = $("lineMode").value, fixed = parseFloat($("lineVal").value) || 0;
+  for (const p of S.data.players) {
+    p.line = mode === "fixed" ? fixed : Math.floor(p.baseline) + 0.5;
+    p.prob = 1 - cdf((p.line - p.proj) / p.sd);
+    p.pct = Math.round(p.prob * 100);
+    p.bucket = bucketOf(p.pct);
+  }
+}
+
+function basePool() {
+  const minMpg = parseFloat($("minMpg").value) || 0, q = $("q").value.trim().toLowerCase(), hideOut = $("hideOut").checked;
+  return S.data.players.filter(p =>
+    p.mpg >= minMpg &&
+    !(hideOut && p.injury && /out/i.test(p.injury)) &&
+    (!S.game || p.game_id === S.game) &&
+    (!q || p.name.toLowerCase().includes(q) || p.team.toLowerCase().includes(q) || p.opp.toLowerCase().includes(q)));
+}
+
+function render() {
+  if (!S.data) return;
+  enrich();
+  const pool = basePool();
+  // bucket counts reflect all other filters
+  const counts = [0, 0, 0, 0]; pool.forEach(p => counts[p.bucket]++);
+  renderBuckets(counts);
+  const rows = pool.filter(p => S.buckets.has(p.bucket));
+  const k = S.sort, d = S.dir;
+  rows.sort((a, b) => {
+    const x = a[k], y = b[k];
+    if (typeof x === "string") return d * x.localeCompare(y);
+    return d * ((x ?? -1e9) - (y ?? -1e9));
+  });
+  renderTable(rows);
+  renderSlider([...rows].sort((a, b) => b.prob - a.prob || b.proj - a.proj).slice(0, 10));
+  renderCombos();
+  $("count").textContent = `${rows.length} players`;
+  const ln = $("lineMode").value === "fixed" ? `over ${$("lineVal").value} PRA` : "over own baseline line";
+  $("topsub").textContent = `· ranked by probability ${ln}`;
+}
+
+function renderBuckets(counts) {
+  $("buckets").innerHTML = BUCKETS.map(b => `
+    <label class="bucket ${S.buckets.has(b.key) ? "on" : ""}" data-k="${b.key}">
+      <input type="checkbox" ${S.buckets.has(b.key) ? "checked" : ""}><span class="sw" style="background:${b.color}"></span>${b.label}<span class="ct">${counts[b.key]}</span>
+    </label>`).join("");
+}
+$("buckets").addEventListener("click", e => {
+  const el = e.target.closest(".bucket"); if (!el) return;
+  e.preventDefault();
+  const k = +el.dataset.k;
+  S.buckets.has(k) ? S.buckets.delete(k) : S.buckets.add(k);
+  render();
+});
+
+function renderHead() {
+  $("thead").innerHTML = COLS.map(c =>
+    `<th data-k="${c.k}" class="${c.num ? "num" : ""} ${S.sort === c.k ? "sorted" : ""}">${c.t}${S.sort === c.k ? (S.dir < 0 ? " ▼" : " ▲") : ""}</th>`).join("");
+}
+$("thead").addEventListener("click", e => {
+  const th = e.target.closest("th"); if (!th) return;
+  const k = th.dataset.k;
+  if (S.sort === k) S.dir *= -1; else { S.sort = k; S.dir = (k === "name" || k === "opp") ? 1 : -1; }
+  renderHead(); render();
+});
+
+function spark(vals) {
+  if (!vals || vals.length < 2) return "";
+  const w = 60, h = 18, lo = Math.min(...vals, 1500), hi = Math.max(...vals, 1500), r = hi - lo || 1;
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1) * w).toFixed(1)},${(h - 2 - (v - lo) / r * (h - 4)).toFixed(1)}`).join(" ");
+  const mid = (h - 2 - (1500 - lo) / r * (h - 4)).toFixed(1);
+  const up = vals[vals.length - 1] >= 1500;
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle"><line x1="0" x2="${w}" y1="${mid}" y2="${mid}" stroke="#383835" stroke-dasharray="2 2"/><polyline points="${pts}" fill="none" stroke="${up ? "#3fbf3f" : "#e66767"}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+}
+
+function renderTable(rows) {
+  if (!rows.length) { $("tbody").innerHTML = `<tr><td class="empty" colspan="${COLS.length}">No players match these filters.</td></tr>`; return; }
+  $("tbody").innerHTML = rows.map((p, i) => {
+    const b = BUCKETS[p.bucket];
+    return `<tr data-i="${S.data.players.indexOf(p)}">
+      <td><div class="pl"><img loading="lazy" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'"><div><div>${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div><div class="sub">${esc(p.team)} · ${esc(p.pos || "")} · ${fmt(p.mpg, 0)} mpg</div></div></div></td>
+      <td><div class="mu-cell"><span class="ha">${p.home ? "HOME" : "AWAY"}</span>${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)}</div></td>
+      <td class="num"><div class="projv">${fmt(p.proj)}</div><div class="sub2">${fmt(p.proj_pts)} / ${fmt(p.proj_reb)} / ${fmt(p.proj_ast)}</div></td>
+      <td class="num">${fmt(p.baseline)}<div class="sub2">${p.games} gp</div></td>
+      <td class="num">${spark(p.elo_trend)} ${Math.round(p.elo)}<div class="sub2 ${cls(p.momentum)}">${sgn(p.momentum)}</div></td>
+      <td class="num">${p.h2h_n ? fmt(p.h2h_avg) : "—"}<div class="sub2">${p.h2h_n} gm · <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span></div></td>
+      <td class="num">H−A <span class="${cls(p.ha_diff)}">${sgn(p.ha_diff)}</span><div class="sub2">tonight <span class="${cls(p.venue)}">${sgn(p.venue)}</span></div></td>
+      <td class="num">${fmt(p.line)}</td>
+      <td class="num"><div class="prob"><div class="bar"><i style="width:${p.pct}%;background:${b.color}"></i></div><b style="width:38px">${p.pct}%</b></div></td>
+    </tr>`;
+  }).join("");
+}
+
+// tooltip with game-level detail
+$("tbody").addEventListener("mousemove", e => {
+  const tr = e.target.closest("tr[data-i]"); const tip = $("tip");
+  if (!tr) { tip.style.display = "none"; return; }
+  const p = S.data.players[+tr.dataset.i];
+  tip.innerHTML = `<div class="t">${esc(p.name)} — ${p.home ? "vs" : "@"} ${esc(p.opp)}</div>
+    <div>Last 5 PRA: ${p.last5.map(v => v.toFixed(0)).join(", ")} (avg ${fmt(p.last5_avg)})</div>
+    <div>Home avg ${fmt(p.home_avg)} · Away avg ${fmt(p.away_avg)}</div>
+    <div>Std. dev ${fmt(p.sd)} · Elo ${Math.round(p.elo)}</div>
+    <div>${fmt(p.baseline)} base ${sgn(p.momentum)} Elo ${sgn(p.matchup)} H2H ${sgn(p.venue)} venue = <b>${fmt(p.proj)}</b></div>
+    <div>P(PRA &gt; ${fmt(p.line)}) = <b>${p.pct}%</b></div>`;
+  tip.style.display = "block";
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+});
+$("tbody").addEventListener("mouseleave", () => $("tip").style.display = "none");
+
+function ring(pct, color) {
+  const r = 30, c = 2 * Math.PI * r;
+  return `<svg class="ring" viewBox="0 0 72 72"><circle cx="36" cy="36" r="${r}" fill="none" stroke="#2c2c2a" stroke-width="6"/><circle cx="36" cy="36" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${c * pct / 100} ${c}" transform="rotate(-90 36 36)"/></svg>`;
+}
+
+function renderSlider(top) {
+  S.top = top;
+  if (!top.length) { $("track").innerHTML = `<div class="empty" style="flex:0 0 100%">No players in the selected probability ranges.</div>`; $("dots").innerHTML = ""; return; }
+  if (S.slide >= top.length) S.slide = 0;
+  $("track").innerHTML = top.map((p, i) => {
+    const b = BUCKETS[p.bucket];
+    return `<div class="slide">
+      <div class="rank">#${i + 1}</div>
+      <img class="hs" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'" alt="">
+      <div>
+        <div class="nm">${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div>
+        <div class="mu"><img src="${esc(p.team_logo)}" alt="">${esc(p.team)} ${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)} <span class="ha">${p.home ? "HOME" : "AWAY"}</span></div>
+        <div class="chips">
+          <span class="chip">Baseline <b>${fmt(p.baseline)}</b></span>
+          <span class="chip">Elo <b>${Math.round(p.elo)}</b> <span class="${cls(p.momentum)}">${sgn(p.momentum)}</span></span>
+          <span class="chip">vs ${esc(p.opp)} <b>${p.h2h_n ? fmt(p.h2h_avg) : "—"}</b> (${p.h2h_n} gm) <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span></span>
+          <span class="chip">${p.home ? "Home" : "Away"} <span class="${cls(p.venue)}">${sgn(p.venue)}</span> · H−A <b>${sgn(p.ha_diff)}</b></span>
+          <span class="chip">Last 5 <b>${fmt(p.last5_avg)}</b></span>
+        </div>
+      </div>
+      <div class="big" style="display:flex;gap:16px;align-items:center">
+        ${ring(p.pct, b.color)}
+        <div><div class="pct">${p.pct}%</div><div class="lbl">over ${fmt(p.line)} PRA</div>
+        <div class="proj">${fmt(p.proj)} PRA</div><div class="pra">${fmt(p.proj_pts)} P · ${fmt(p.proj_reb)} R · ${fmt(p.proj_ast)} A</div></div>
+      </div>
+    </div>`;
+  }).join("");
+  $("dots").innerHTML = top.map((_, i) => `<button data-i="${i}" aria-label="Slide ${i + 1}"></button>`).join("");
+  go(S.slide);
+}
+function go(i) {
+  const n = (S.top || []).length; if (!n) return;
+  S.slide = (i + n) % n;
+  $("track").style.transform = `translateX(-${S.slide * 100}%)`;
+  [...$("dots").children].forEach((d, j) => d.classList.toggle("on", j === S.slide));
+}
+$("prev").onclick = () => { go(S.slide - 1); restart(); };
+$("next").onclick = () => { go(S.slide + 1); restart(); };
+$("dots").onclick = e => { if (e.target.dataset.i) { go(+e.target.dataset.i); restart(); } };
+function restart() { clearInterval(S.timer); S.timer = setInterval(() => go(S.slide + 1), 5000); }
+$("slider").onmouseenter = () => clearInterval(S.timer);
+$("slider").onmouseleave = restart;
+
+// ---- 5-player combos: each leg is an over/under call on the player's own PRA line ----
+const COMBOS_PER_BUCKET = 3, LEGS = 5;
+function comboLegs() {
+  const minMpg = parseFloat($("minMpg").value) || 0, hideOut = $("hideOut").checked;
+  return S.data.players
+    .filter(p => p.mpg >= minMpg && !(hideOut && p.injury && /out/i.test(p.injury)))
+    .map(p => {
+      const line = Math.floor(p.baseline) + 0.5, pOver = 1 - cdf((line - p.proj) / p.sd);
+      const over = pOver >= 0.5;
+      return { p, line, over, conf: over ? pOver : 1 - pOver, edge: p.proj - line, cv: p.sd / Math.max(line, 1) };
+    });
+}
+// Greedy, no player reused, max one player per team and two per game in a combo (limits correlation)
+function buildCombos(ranked) {
+  const used = new Set(), combos = [];
+  for (let c = 0; c < COMBOS_PER_BUCKET; c++) {
+    const legs = [], teams = new Set(), games = {};
+    for (const l of ranked) {
+      if (legs.length === LEGS) break;
+      if (used.has(l.p.id) || teams.has(l.p.team) || (games[l.p.game_id] || 0) >= 2) continue;
+      legs.push(l); teams.add(l.p.team); games[l.p.game_id] = (games[l.p.game_id] || 0) + 1;
+    }
+    if (legs.length < LEGS) break;
+    legs.forEach(l => used.add(l.p.id));
+    combos.push({ legs, prob: legs.reduce((a, l) => a * l.conf, 1) });
+  }
+  return combos;
+}
+function american(prob) {
+  const dec = 1 / prob;
+  return dec >= 2 ? `+${Math.round((dec - 1) * 100)}` : `${Math.round(-100 / (dec - 1))}`;
+}
+function renderCombos() {
+  const legs = comboLegs();
+  // Low risk: most confident calls first
+  const low = [...legs].sort((a, b) => b.conf - a.conf);
+  // High risk: volatile players (above-median spread) with a moderate lean, ranked by size of the projected edge
+  const cvs = legs.map(l => l.cv).sort((a, b) => a - b), medCv = cvs[Math.floor(cvs.length / 2)] || 0;
+  const high = legs.filter(l => l.cv >= medCv && l.conf >= 0.55 && l.conf <= 0.70)
+    .sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge));
+  $("comboLow").innerHTML = comboHtml(buildCombos(low));
+  $("comboHigh").innerHTML = comboHtml(buildCombos(high));
+}
+function comboHtml(combos) {
+  if (!combos.length) return `<div class="empty">Not enough players for a 5-player combo with these filters.</div>`;
+  return combos.map((c, i) => `
+    <div class="combo">
+      <div class="combo-h"><b>Combo ${String.fromCharCode(65 + i)}</b><span class="sub2">all 5 must hit</span>
+        <span class="odds">Hit chance <b>${(c.prob * 100).toFixed(1)}%</b> · fair payout <b>${(1 / c.prob).toFixed(1)}x</b> (${american(c.prob)})</span></div>
+      ${c.legs.map(l => `
+        <div class="leg">
+          <img src="${esc(l.p.headshot)}" onerror="this.style.visibility='hidden'" alt="">
+          <div class="who">${esc(l.p.name)}<span class="sub2">${esc(l.p.team)} ${l.p.home ? "vs" : "@"} ${esc(l.p.opp)} · proj ${fmt(l.p.proj)}</span></div>
+          <span class="pick ${l.over ? "over" : "under"}">${l.over ? "OVER" : "UNDER"} ${fmt(l.line)}</span>
+          <span class="num sub2">${sgn(l.edge)}</span>
+          <b class="num">${Math.round(l.conf * 100)}%</b>
+        </div>`).join("")}
+    </div>`).join("");
+}
+
+function renderGames() {
+  const g = S.data.games;
+  $("games").innerHTML = `<div class="game ${!S.game ? "active" : ""}" data-g=""><div class="row">All games</div><div class="st">${g.length} games</div></div>` +
+    g.map(x => `<div class="game ${S.game === x.id ? "active" : ""}" data-g="${x.id}">
+      <div class="row"><img src="${esc(x.away.logo)}" alt="">${esc(x.away.abbr)}<span class="sc">${x.state !== "pre" ? esc(x.away.score) : ""}</span></div>
+      <div class="row"><img src="${esc(x.home.logo)}" alt="">${esc(x.home.abbr)}<span class="sc">${x.state !== "pre" ? esc(x.home.score) : ""}</span></div>
+      <div class="st">${esc(x.status)}</div></div>`).join("");
+}
+$("games").onclick = e => {
+  const el = e.target.closest(".game"); if (!el) return;
+  S.game = el.dataset.g || null; S.slide = 0; renderGames(); render();
+};
+
+function setAgent(state, text) { $("adot").className = "dot " + state; $("astatus").textContent = text; }
+
+// On GitHub Pages there is no server: publish.py sets window.STATIC_DATA to the folder of daily JSON files.
+const STATIC = window.STATIC_DATA || null;
+async function fetchData(force) {
+  if (!STATIC) return (await fetch(`/api/projections?date=${$("date").value}${force ? "&refresh=1" : ""}`)).json();
+  const idx = await (await fetch(`${STATIC}index.json`, { cache: "no-store" })).json();
+  $("date").min = idx.dates[0]; $("date").max = idx.dates[idx.dates.length - 1];
+  if (!idx.dates.includes($("date").value)) $("date").value = idx.latest;
+  return (await fetch(`${STATIC}${$("date").value}.json`, { cache: "no-store" })).json();
+}
+
+async function load(force) {
+  setAgent("busy", STATIC ? "Loading published projections…" : "Agent pulling games, rosters & game logs…");
+  try {
+    const d = await fetchData(force);
+    if (d.error) throw new Error(d.error);
+    S.data = d;
+    if (!d.games.some(g => g.id === S.game)) S.game = null;
+    renderGames(); renderHead(); render(); restart();
+    const t = new Date(d.generated).toLocaleTimeString();
+    const nd = d.next_daily ? new Date(d.next_daily).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
+    const when = STATIC ? new Date(d.generated).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : t;
+    setAgent("live", `${STATIC ? "Published" : "Live"} · ${d.games.length} games · ${d.players.length} players · updated ${when}${nd ? ` · next daily refresh ${nd}` : ""}`);
+    if (!d.games.length) $("tbody").innerHTML = `<tr><td class="empty" colspan="${COLS.length}">No NBA games on this date.</td></tr>`;
+  } catch (err) {
+    setAgent("", "Error: " + err.message);
+  }
+}
+$("date").onchange = () => load(false);
+$("refresh").onclick = () => load(true);
+["lineMode", "lineVal", "minMpg", "q", "hideOut"].forEach(id => $(id).addEventListener("input", () => {
+  if (id === "lineMode") $("lineVal").disabled = $("lineMode").value !== "fixed";
+  S.slide = 0; render();
+}));
+// Daily rollover: if the page is showing today's slate, follow the calendar to the next day automatically.
+const localToday = () => { const n = new Date(); n.setMinutes(n.getMinutes() - n.getTimezoneOffset()); return n.toISOString().slice(0, 10); };
+let shownToday = localToday();
+setInterval(() => {
+  const t = localToday();
+  if (t !== shownToday) {
+    if ($("date").value === shownToday) { $("date").value = t; S.game = null; load(false); }
+    shownToday = t;
+  }
+}, 60 * 1000);
+setInterval(() => load(false), 10 * 60 * 1000);
+renderHead();
+load(false);
+</script>
+</body>
+</html>
