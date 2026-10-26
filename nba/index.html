@@ -206,12 +206,12 @@
     <details>
       <summary>How the model works</summary>
       <ul>
-        <li><b>Baseline</b> — recency-weighted PRA over this season and last (half-life 12 games). Only games before the selected date are used.</li>
-        <li><b>Elo momentum</b> — every player starts at 1500. Each game is a "match" against the player's own expectation (a slow ~20-game average); beating it raises the rating, falling short lowers it (K = 32). Every +100 Elo adds ¼ of the player's standard deviation to the projection.</li>
-        <li><b>Head-to-head</b> — the player's average PRA against tonight's opponent, shrunk toward the baseline by 3 pseudo-games so 1–2 meetings don't dominate.</li>
-        <li><b>Home / away</b> — home PRA minus away PRA is the player's split (H−A). Tonight's venue adjustment is the venue average minus baseline, shrunk by 10 pseudo-games.</li>
-        <li><b>Projection</b> = baseline + momentum + head-to-head + venue. Points, rebounds and assists are scaled from the player's recent mix.</li>
-        <li><b>Probability</b> = chance the player goes over the line, using a normal distribution around the projection with the player's own game-to-game standard deviation. By default the line is the player's <b>betting line</b>: the Kalshi "N+ points, rebounds and assists" market priced closest to 50/50. Players Kalshi doesn't list fall back to their own baseline rounded to a .5 line. Use − / + to move any player's line up to 3 either way, 1 at a time. Where Kalshi lists a market at that exact line, its price is shown as "mkt".</li>
+        <li><b>Bayesian updating (conjugate priors)</b> — points, rebounds and assists each have a per-game Poisson rate with a Gamma prior. The prior is last season's rate, counted as if it were 6 games. This season's games update it exactly (Gamma + Poisson stays Gamma), with recent games weighted more (half-life 12 games). Early in the season the prior dominates, and later the new games take over. The "Bayes rate" is the posterior points + rebounds + assists (PRA). The ± is how uncertain that rate still is.</li>
+        <li><b>Form</b> — the posterior rate minus the prior: how far this season's games have moved the player from last season. The sparkline shows the posterior after each recent game, and the dashed line is the prior.</li>
+        <li><b>Head-to-head</b> — a Gamma-prior rate multiplier for tonight's opponent, applied to each stat. It's the player's output against that team relative to their average over the same games, shrunk toward 1 by 3 pseudo-games so 1–2 meetings don't dominate.</li>
+        <li><b>Home / away</b> — home PRA minus away PRA is the player's split (H−A). Tonight's venue multiplier works the same way as head-to-head, shrunk by 10 pseudo-games.</li>
+        <li><b>Multivariate Poisson</b> — PRA isn't three independent counts. Each pair of stats shares a common-shock Poisson term (a bivariate Poisson per pair, e.g. a made basket off a rebound), fitted from the player's covariances. On top of that, a game-level Gamma factor for minutes, pace and blowouts moves all three together. That factor's size (φ) comes from how much more the player's stats swing than a plain Poisson would, plus the uncertainty left in the Bayesian posterior.</li>
+        <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. There's no bell-curve approximation.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and again at 9:00 AM, after late games are final. An open page moves to the new day by itself and reloads every 10 minutes.</li>
       </ul>
@@ -233,8 +233,8 @@ const COLS = [
   { k: "name", t: "Player" },
   { k: "opp", t: "Matchup" },
   { k: "proj", t: "Proj PRA", num: 1 },
-  { k: "baseline", t: "Baseline", num: 1 },
-  { k: "elo", t: "Elo momentum", num: 1 },
+  { k: "baseline", t: "Bayes rate", num: 1 },
+  { k: "form", t: "Form (vs prior)", num: 1 },
   { k: "matchup", t: "vs Opponent", num: 1 },
   { k: "venue", t: "Home/Away ±", num: 1 },
   { k: "line", t: "Line", num: 1 },
@@ -246,13 +246,6 @@ const $ = id => document.getElementById(id);
 const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
 $("date").value = today.toISOString().slice(0, 10);
 
-function erf(x) { // Abramowitz-Stegun 7.1.26
-  const s = Math.sign(x); x = Math.abs(x);
-  const t = 1 / (1 + 0.3275911 * x);
-  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return s * y;
-}
-const cdf = z => 0.5 * (1 + erf(z / Math.SQRT2));
 const bucketOf = pct => pct <= 25 ? 0 : pct <= 50 ? 1 : pct <= 70 ? 2 : 3;
 const fmt = (v, d = 1) => v == null ? "—" : v.toFixed(d);
 const sgn = (v, d = 1) => v == null ? "—" : (v > 0.05 ? "+" : "") + v.toFixed(d);
@@ -271,7 +264,8 @@ function enrich() {
     p.line = p.baseLine + p.off;
     const strike = (p.book_strikes || []).find(([l]) => l === p.line);
     p.mkt = strike ? strike[1] : null;  // market P(over) at exactly this line, when Kalshi lists it
-    p.prob = 1 - cdf((p.line - p.proj) / p.sd);
+    const k = Math.floor(p.line) + 1;  // P(PRA > line) = P(PRA >= floor(line) + 1), from the model's distribution
+    p.prob = k <= 0 ? 1 : k < p.sf.length ? p.sf[k] : 0;
     p.pct = Math.round(p.prob * 100);
     p.bucket = bucketOf(p.pct);
   }
@@ -334,12 +328,12 @@ $("thead").addEventListener("click", e => {
   renderHead(); render();
 });
 
-function spark(vals) {
+function spark(vals, ref) {
   if (!vals || vals.length < 2) return "";
-  const w = 60, h = 18, lo = Math.min(...vals, 1500), hi = Math.max(...vals, 1500), r = hi - lo || 1;
+  const w = 60, h = 18, lo = Math.min(...vals, ref), hi = Math.max(...vals, ref), r = hi - lo || 1;
   const pts = vals.map((v, i) => `${(i / (vals.length - 1) * w).toFixed(1)},${(h - 2 - (v - lo) / r * (h - 4)).toFixed(1)}`).join(" ");
-  const mid = (h - 2 - (1500 - lo) / r * (h - 4)).toFixed(1);
-  const up = vals[vals.length - 1] >= 1500;
+  const mid = (h - 2 - (ref - lo) / r * (h - 4)).toFixed(1);
+  const up = vals[vals.length - 1] >= ref;
   return `<svg width="${w}" height="${h}" style="vertical-align:middle"><line x1="0" x2="${w}" y1="${mid}" y2="${mid}" stroke="#383835" stroke-dasharray="2 2"/><polyline points="${pts}" fill="none" stroke="${up ? "#3fbf3f" : "#e66767"}" stroke-width="2" stroke-linejoin="round"/></svg>`;
 }
 
@@ -364,8 +358,8 @@ function renderTable(rows) {
       <td><div class="pl"><img loading="lazy" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'"><div><div>${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div><div class="sub">${esc(p.team)} · ${esc(p.pos || "")} · ${fmt(p.mpg, 0)} mpg</div></div></div></td>
       <td><div class="mu-cell"><span class="ha">${p.home ? "HOME" : "AWAY"}</span>${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)}</div></td>
       <td class="num"><div class="projv">${fmt(p.proj)}</div><div class="sub2">${fmt(p.proj_pts)} / ${fmt(p.proj_reb)} / ${fmt(p.proj_ast)}</div></td>
-      <td class="num">${fmt(p.baseline)}<div class="sub2">${p.games} gp</div></td>
-      <td class="num">${spark(p.elo_trend)} ${Math.round(p.elo)}<div class="sub2 ${cls(p.momentum)}">${sgn(p.momentum)}</div></td>
+      <td class="num">${fmt(p.baseline)} <span class="sub2">±${fmt(p.post_sd)}</span><div class="sub2">prior ${fmt(p.prior_mean)} · ${p.cur_games} gp</div></td>
+      <td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>
       <td class="num">${p.h2h_n ? fmt(p.h2h_avg) : "—"}<div class="sub2">${p.h2h_n} gm · <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span></div></td>
       <td class="num">H−A <span class="${cls(p.ha_diff)}">${sgn(p.ha_diff)}</span><div class="sub2">tonight <span class="${cls(p.venue)}">${sgn(p.venue)}</span></div></td>
       <td class="num">${stepper(p)}<div class="sub2">${p.lineSrc === "Kalshi" ? "Kalshi" : p.lineSrc === "own" ? "own line" : "fixed"}${p.off ? ` ${p.off > 0 ? "+" : ""}${p.off}` : ""}${p.mkt != null ? ` · mkt ${Math.round(p.mkt * 100)}%` : ""}</div></td>
@@ -382,8 +376,9 @@ $("tbody").addEventListener("mousemove", e => {
   tip.innerHTML = `<div class="t">${esc(p.name)} — ${p.home ? "vs" : "@"} ${esc(p.opp)}</div>
     <div>Last 5 PRA: ${p.last5.map(v => v.toFixed(0)).join(", ")} (avg ${fmt(p.last5_avg)})</div>
     <div>Home avg ${fmt(p.home_avg)} · Away avg ${fmt(p.away_avg)}</div>
-    <div>Std. dev ${fmt(p.sd)} · Elo ${Math.round(p.elo)}</div>
-    <div>${fmt(p.baseline)} base ${sgn(p.momentum)} Elo ${sgn(p.matchup)} H2H ${sgn(p.venue)} venue = <b>${fmt(p.proj)}</b></div>
+    <div>Spread ±${fmt(p.sd)} · game factor φ ${fmt(p.phi)} · shared-shock PRA ${fmt(p.shared)}</div>
+    <div>Correlation P–R ${fmt(p.corr.pr, 2)} · P–A ${fmt(p.corr.pa, 2)} · R–A ${fmt(p.corr.ra, 2)}</div>
+    <div>${fmt(p.baseline)} Bayes rate (prior ${fmt(p.prior_mean)}) ${sgn(p.matchup)} opp ${sgn(p.venue)} venue = <b>${fmt(p.proj)}</b></div>
     <div>P(PRA &gt; ${fmt(p.line)}) = <b>${p.pct}%</b>${p.mkt != null ? ` · Kalshi market ${Math.round(p.mkt * 100)}%` : ""}</div>
     ${p.book_strikes ? `<div>Kalshi lines: ${p.book_strikes.map(([l, q]) => `${l} (${Math.round(q * 100)}%)`).join(", ")}</div>` : ""}`;
   tip.style.display = "block";
@@ -410,8 +405,8 @@ function renderSlider(top) {
         <div class="nm">${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div>
         <div class="mu"><img src="${esc(p.team_logo)}" alt="">${esc(p.team)} ${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)} <span class="ha">${p.home ? "HOME" : "AWAY"}</span></div>
         <div class="chips">
-          <span class="chip">Baseline <b>${fmt(p.baseline)}</b></span>
-          <span class="chip">Elo <b>${Math.round(p.elo)}</b> <span class="${cls(p.momentum)}">${sgn(p.momentum)}</span></span>
+          <span class="chip">Bayes rate <b>${fmt(p.baseline)}</b></span>
+          <span class="chip">Form <span class="${cls(p.form)}">${sgn(p.form)}</span> vs prior ${fmt(p.prior_mean)}</span>
           <span class="chip">vs ${esc(p.opp)} <b>${p.h2h_n ? fmt(p.h2h_avg) : "—"}</b> (${p.h2h_n} gm) <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span></span>
           <span class="chip">${p.home ? "Home" : "Away"} <span class="${cls(p.venue)}">${sgn(p.venue)}</span> · H−A <b>${sgn(p.ha_diff)}</b></span>
           <span class="chip">Last 5 <b>${fmt(p.last5_avg)}</b></span>
