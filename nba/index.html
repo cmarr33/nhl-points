@@ -206,12 +206,13 @@
     <details>
       <summary>How the model works</summary>
       <ul>
-        <li><b>Bayesian updating (conjugate priors)</b> — points, rebounds and assists each have a per-game Poisson rate with a Gamma prior. The prior is last season's rate, counted as if it were 6 games. This season's games update it exactly (Gamma + Poisson stays Gamma), with recent games weighted more (half-life 12 games). Early in the season the prior dominates, and later the new games take over. The "Bayes rate" is the posterior points + rebounds + assists (PRA). The ± is how uncertain that rate still is.</li>
+        <li><b>Bayesian updating (conjugate priors)</b> — points, rebounds and assists each have a per-game Poisson rate with a Gamma prior. The prior is last season's rate, counted as if it were 1 game. This season's games update it exactly (Gamma + Poisson stays Gamma), with recent games weighted more (half-life 6 games). The "Bayes rate" is the posterior PRA. The ± is how uncertain that rate still is.</li>
         <li><b>Form</b> — the posterior rate minus the prior: how far this season's games have moved the player from last season. The sparkline shows the posterior after each recent game, and the dashed line is the prior.</li>
-        <li><b>Head-to-head</b> — a Gamma-prior rate multiplier for tonight's opponent, applied to each stat. It's the player's output against that team relative to their average over the same games, shrunk toward 1 by 3 pseudo-games so 1–2 meetings don't dominate.</li>
-        <li><b>Home / away</b> — home PRA minus away PRA is the player's split (H−A). Tonight's venue multiplier works the same way as head-to-head, shrunk by 10 pseudo-games.</li>
+        <li><b>Head-to-head</b> — the player's past PRA against tonight's opponent, shown for context. It is <b>not applied</b> to the projection: on last season's full backtest, opponent splits built from a handful of games added noise and made predictions worse.</li>
+        <li><b>Home / away</b> — home PRA minus away PRA (H−A), also shown for context and not applied, for the same reason.</li>
         <li><b>Multivariate Poisson</b> — PRA isn't three independent counts. Each pair of stats shares a common-shock Poisson term (a bivariate Poisson per pair, e.g. a made basket off a rebound), fitted from the player's covariances. On top of that, a game-level Gamma factor for minutes, pace and blowouts moves all three together. That factor's size (φ) comes from how much more the player's stats swing than a plain Poisson would, plus the uncertainty left in the Bayesian posterior.</li>
-        <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. There's no bell-curve approximation.</li>
+        <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
+        <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and again at 9:00 AM, after late games are final. An open page moves to the new day by itself and reloads every 10 minutes.</li>
       </ul>
@@ -253,6 +254,11 @@ const cls = v => v == null || Math.abs(v) < 0.05 ? "zero" : v > 0 ? "pos" : "neg
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 const LINE_RANGE = 3, LINE_STEP = 1;
+// Platt scaling fitted on last season's backtest (calibrate.py): P' = 1 / (1 + e^-(a*logit(P) + b))
+function calibrate(p) {
+  const c = S.data.calibration || { a: 1, b: 0 }, q = Math.min(1 - 1e-4, Math.max(1e-4, p));
+  return 1 / (1 + Math.exp(-(c.a * Math.log(q / (1 - q)) + c.b)));
+}
 function enrich() {
   const mode = $("lineMode").value, fixed = parseFloat($("lineVal").value) || 0;
   for (const p of S.data.players) {
@@ -265,7 +271,8 @@ function enrich() {
     const strike = (p.book_strikes || []).find(([l]) => l === p.line);
     p.mkt = strike ? strike[1] : null;  // market P(over) at exactly this line, when Kalshi lists it
     const k = Math.floor(p.line) + 1;  // P(PRA > line) = P(PRA >= floor(line) + 1), from the model's distribution
-    p.prob = k <= 0 ? 1 : k < p.sf.length ? p.sf[k] : 0;
+    p.raw = k <= 0 ? 1 : k < p.sf.length ? p.sf[k] : 0;
+    p.prob = calibrate(p.raw);
     p.pct = Math.round(p.prob * 100);
     p.bucket = bucketOf(p.pct);
   }
