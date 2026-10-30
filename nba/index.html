@@ -108,6 +108,7 @@
   .stepper button { width: 22px; height: 22px; padding: 0; line-height: 1; border-radius: 5px; }
   .stepper button:disabled { opacity: .3; cursor: default; }
   .stepper b { min-width: 34px; text-align: center; }
+  .mk { font-size: 10px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; vertical-align: middle; }
   .sport-tabs { display: flex; gap: 4px; padding: 3px; background: var(--surface); border: 1px solid var(--axis); border-radius: 9px; }
   .sport-tabs a { color: var(--ink-2); text-decoration: none; padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; }
   .sport-tabs a:hover { color: var(--ink); }
@@ -214,6 +215,7 @@
         <li><b>Home / away</b> — home PRA minus away PRA (H−A), also shown for context and not applied, for the same reason.</li>
         <li><b>Multivariate Poisson</b> — PRA isn't three independent counts. Each pair of stats shares a common-shock Poisson term (a bivariate Poisson per pair, e.g. a made basket off a rebound), fitted from the player's covariances. On top of that, a game-level Gamma factor for minutes, pace and blowouts moves all three together. That factor's size (φ) comes from how much more the player's stats swing than a plain Poisson would, plus the uncertainty left in the Bayesian posterior.</li>
         <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
+        <li><b>Market blend</b> — when Kalshi prices a player, the model's distribution is rescaled to fit Kalshi's prices across all of his listed lines, giving a Kalshi-implied projection that also answers lines Kalshi doesn't list (the ± stepper). On this season's settled markets (market_backtest.py: 349 markets, prices at 9 AM and at tip-off), every blend that gave the model any weight scored worse than the market alone. So priced players (marked <b>K</b>) show the market-implied numbers, uncalibrated, and everyone else uses the model. Disagreement between the model and the market was not predictive.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and again at 9:00 AM, after late games are final. An open page moves to the new day by itself and reloads every 10 minutes.</li>
@@ -275,7 +277,9 @@ function enrich() {
     p.mkt = strike ? strike[1] : null;  // market P(over) at exactly this line, when Kalshi lists it
     const k = Math.floor(p.line) + 1;  // P(PRA > line) = P(PRA >= floor(line) + 1), from the model's distribution
     p.raw = k <= 0 ? 1 : k < p.sf.length ? p.sf[k] : 0;
-    p.prob = calibrate(p.raw);
+    // Priced players: Kalshi's own price where it lists this exact line, else the Kalshi-implied
+    // distribution; calibration was fitted on the model, so it only applies to unpriced players.
+    p.prob = p.market_weight ? (p.mkt != null ? p.mkt : p.raw) : calibrate(p.raw);
     p.pct = Math.round(p.prob * 100);
     p.bucket = bucketOf(p.pct);
   }
@@ -367,7 +371,7 @@ function renderTable(rows) {
     return `<tr data-i="${S.data.players.indexOf(p)}">
       <td><div class="pl"><img loading="lazy" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'"><div><div>${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div><div class="sub">${esc(p.team)} · ${esc(p.pos || "")} · ${fmt(p.mpg, 0)} mpg</div></div></div></td>
       <td><div class="mu-cell"><span class="ha">${p.home ? "HOME" : "AWAY"}</span>${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)}</div></td>
-      <td class="num"><div class="projv">${fmt(p.proj)}</div><div class="sub2">${fmt(p.proj_pts)} / ${fmt(p.proj_reb)} / ${fmt(p.proj_ast)}</div></td>
+      <td class="num"><div class="projv">${fmt(p.proj)}${p.market_weight ? ` <span class="mk" title="Kalshi-implied projection. Model alone: ${fmt(p.model_proj)}">K</span>` : ""}</div><div class="sub2">${fmt(p.proj_pts)} / ${fmt(p.proj_reb)} / ${fmt(p.proj_ast)}</div></td>
       <td class="num">${fmt(p.proj_min)} <span class="sub2">±${fmt(p.min_sd)}</span><div class="sub2">${p.min_boost > 0.05 ? `<span class="pos" title="Out: ${esc((p.out_teammates || []).join(", "))}">+${fmt(p.min_boost)} teammates out</span>` : `${fmt(p.per36)} per 36`}</div></td>
       <td class="num">${fmt(p.baseline)} <span class="sub2">±${fmt(p.post_sd)}</span><div class="sub2">prior ${fmt(p.prior_mean)} · ${p.cur_games} gp</div></td>
       <td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>
@@ -391,6 +395,7 @@ $("tbody").addEventListener("mousemove", e => {
     <div>Minutes: full-roster ${fmt(p.mpg)} → tonight ${fmt(p.proj_min)} ±${fmt(p.min_sd)}${p.out_teammates && p.out_teammates.length ? ` (out: ${p.out_teammates.map(esc).join(", ")})` : ""} · ${fmt(p.per36)} PRA per 36</div>
     <div>Correlation P–R ${fmt(p.corr.pr, 2)} · P–A ${fmt(p.corr.pa, 2)} · R–A ${fmt(p.corr.ra, 2)}</div>
     <div>${fmt(p.baseline)} Bayes rate (prior ${fmt(p.prior_mean)}) ${sgn(p.matchup)} opponent pace/defense (minutes included) = <b>${fmt(p.proj)}</b></div>
+    ${p.market_weight ? `<div>Shown: Kalshi-implied ${fmt(p.market_proj)} PRA (model alone ${fmt(p.model_proj)}, market weight ${Math.round(p.market_weight * 100)}%)</div>` : ""}
     <div>P(PRA &gt; ${fmt(p.line)}) = <b>${p.pct}%</b>${p.mkt != null ? ` · Kalshi market ${Math.round(p.mkt * 100)}%` : ""}</div>
     ${p.book_strikes ? `<div>Kalshi lines: ${p.book_strikes.map(([l, q]) => `${l} (${Math.round(q * 100)}%)`).join(", ")}</div>` : ""}`;
   tip.style.display = "block";
