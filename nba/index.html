@@ -209,7 +209,8 @@
         <li><b>Bayesian updating (conjugate priors)</b> — points, rebounds and assists each have a per-minute Poisson rate with a Gamma prior, with minutes played as the exposure. The prior is last season's per-minute rate, counted as if it were 1 game of minutes. This season's games update it exactly (Gamma + Poisson stays Gamma), with recent games weighted more (half-life 6 games). The "Bayes rate" is the posterior PRA. The ± is how uncertain that rate still is.</li>
         <li><b>Minutes model</b> — projection = projected minutes × per-minute rates. Minutes are a recency-weighted average (half-life 4 games) of the player's "full-roster" minutes: each past game minus any extra minutes he got that night because teammates sat. When rotation teammates (15+ minutes a game) who just played are listed Out or Doubtful tonight, 40% of their minutes are shared among the active players according to each player's headroom (how far below his recent high he plays); the rest goes to the deep bench. The minutes spread feeds the game-level factor of the multivariate Poisson. Tuned on the 2025-26 backtest.</li>
         <li><b>Form</b> — the posterior rate minus the prior: how far this season's games have moved the player from last season. The sparkline shows the posterior after each recent game, and the dashed line is the prior.</li>
-        <li><b>Head-to-head</b> — the player's past PRA against tonight's opponent, shown for context. It is <b>not applied</b> to the projection: on last season's full backtest, opponent splits built from a handful of games added noise and made predictions worse.</li>
+        <li><b>Opponent pace &amp; defense</b> — team ratings built from every player's box scores league-wide: possessions per game (pace) and points, rebounds and assists allowed per possession (defense), weighted toward recent games (half-life 15) and shrunk toward league average by 10 pseudo-games. Tonight's opponent is compared with the opponents the player usually faces: pace = (his team's pace + opponent's) ÷ (his team's + his usual opponents'), and defense = the opponent's per-possession allowed ÷ his usual opponents'. Each stat's rate is multiplied by both. The column shows the PRA effect. On the 2025-26 backtest this improved every score.</li>
+        <li><b>Head-to-head</b> — the player's past PRA against tonight's opponent, shown for context only. Splits built from a handful of games added noise in the backtest, so team-level defense is used instead.</li>
         <li><b>Home / away</b> — home PRA minus away PRA (H−A), also shown for context and not applied, for the same reason.</li>
         <li><b>Multivariate Poisson</b> — PRA isn't three independent counts. Each pair of stats shares a common-shock Poisson term (a bivariate Poisson per pair, e.g. a made basket off a rebound), fitted from the player's covariances. On top of that, a game-level Gamma factor for minutes, pace and blowouts moves all three together. That factor's size (φ) comes from how much more the player's stats swing than a plain Poisson would, plus the uncertainty left in the Bayesian posterior.</li>
         <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
@@ -370,7 +371,7 @@ function renderTable(rows) {
       <td class="num">${fmt(p.proj_min)} <span class="sub2">±${fmt(p.min_sd)}</span><div class="sub2">${p.min_boost > 0.05 ? `<span class="pos" title="Out: ${esc((p.out_teammates || []).join(", "))}">+${fmt(p.min_boost)} teammates out</span>` : `${fmt(p.per36)} per 36`}</div></td>
       <td class="num">${fmt(p.baseline)} <span class="sub2">±${fmt(p.post_sd)}</span><div class="sub2">prior ${fmt(p.prior_mean)} · ${p.cur_games} gp</div></td>
       <td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>
-      <td class="num">${p.h2h_n ? fmt(p.h2h_avg) : "—"}<div class="sub2">${p.h2h_n} gm · <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span></div></td>
+      <td class="num"><span class="${cls(p.matchup)}">${sgn(p.matchup)}</span><div class="sub2" title="Pace = expected possessions vs his usual opponents; defense = PRA allowed per possession vs his usual opponents">pace ×${fmt(p.pace_factor, 2)} · def ×${fmt(p.def_factor, 2)}</div><div class="sub2">H2H ${p.h2h_n ? fmt(p.h2h_avg) : "—"} (${p.h2h_n} gm)</div></td>
       <td class="num">H−A <span class="${cls(p.ha_diff)}">${sgn(p.ha_diff)}</span><div class="sub2">tonight <span class="${cls(p.venue)}">${sgn(p.venue)}</span></div></td>
       <td class="num">${stepper(p)}<div class="sub2">${p.lineSrc === "Kalshi" ? "Kalshi" : p.lineSrc === "own" ? "own line" : "fixed"}${p.off ? ` ${p.off > 0 ? "+" : ""}${p.off}` : ""}${p.mkt != null ? ` · mkt ${Math.round(p.mkt * 100)}%` : ""}</div></td>
       <td class="num"><div class="prob"><div class="bar"><i style="width:${p.pct}%;background:${b.color}"></i></div><b style="width:38px">${p.pct}%</b></div></td>
@@ -389,7 +390,7 @@ $("tbody").addEventListener("mousemove", e => {
     <div>Spread ±${fmt(p.sd)} · game factor φ ${fmt(p.phi)} · shared-shock PRA ${fmt(p.shared)}</div>
     <div>Minutes: full-roster ${fmt(p.mpg)} → tonight ${fmt(p.proj_min)} ±${fmt(p.min_sd)}${p.out_teammates && p.out_teammates.length ? ` (out: ${p.out_teammates.map(esc).join(", ")})` : ""} · ${fmt(p.per36)} PRA per 36</div>
     <div>Correlation P–R ${fmt(p.corr.pr, 2)} · P–A ${fmt(p.corr.pa, 2)} · R–A ${fmt(p.corr.ra, 2)}</div>
-    <div>${fmt(p.baseline)} Bayes rate (prior ${fmt(p.prior_mean)}) ${sgn(p.matchup)} opp ${sgn(p.venue)} venue = <b>${fmt(p.proj)}</b></div>
+    <div>${fmt(p.baseline)} Bayes rate (prior ${fmt(p.prior_mean)}) ${sgn(p.matchup)} opponent pace/defense (minutes included) = <b>${fmt(p.proj)}</b></div>
     <div>P(PRA &gt; ${fmt(p.line)}) = <b>${p.pct}%</b>${p.mkt != null ? ` · Kalshi market ${Math.round(p.mkt * 100)}%` : ""}</div>
     ${p.book_strikes ? `<div>Kalshi lines: ${p.book_strikes.map(([l, q]) => `${l} (${Math.round(q * 100)}%)`).join(", ")}</div>` : ""}`;
   tip.style.display = "block";
@@ -419,7 +420,7 @@ function renderSlider(top) {
           <span class="chip">Bayes rate <b>${fmt(p.baseline)}</b></span>
           <span class="chip">Minutes <b>${fmt(p.proj_min, 0)}</b>${p.min_boost > 0.05 ? ` <span class="pos">+${fmt(p.min_boost)}</span>` : ""}</span>
           <span class="chip">Form <span class="${cls(p.form)}">${sgn(p.form)}</span> vs prior ${fmt(p.prior_mean)}</span>
-          <span class="chip">vs ${esc(p.opp)} <b>${p.h2h_n ? fmt(p.h2h_avg) : "—"}</b> (${p.h2h_n} gm) <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span></span>
+          <span class="chip">vs ${esc(p.opp)} <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span> · pace ×${fmt(p.pace_factor, 2)} · def ×${fmt(p.def_factor, 2)}</span>
           <span class="chip">${p.home ? "Home" : "Away"} <span class="${cls(p.venue)}">${sgn(p.venue)}</span> · H−A <b>${sgn(p.ha_diff)}</b></span>
           <span class="chip">Last 5 <b>${fmt(p.last5_avg)}</b></span>
         </div>
