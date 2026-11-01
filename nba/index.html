@@ -218,7 +218,7 @@
         <li><b>Market blend</b> — when Kalshi prices a player, the model's distribution is rescaled to fit Kalshi's prices across all of his listed lines, giving a Kalshi-implied projection that also answers lines Kalshi doesn't list (the ± stepper). On this season's settled markets (market_backtest.py: 349 markets, prices at 9 AM and at tip-off), every blend that gave the model any weight scored worse than the market alone. So priced players (marked <b>K</b>) show the market-implied numbers, uncalibrated, and everyone else uses the model. Disagreement between the model and the market was not predictive.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
-        <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and again at 9:00 AM, after late games are final. An open page moves to the new day by itself and reloads every 10 minutes.</li>
+        <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and every day at 7:30 AM, 9 AM, 1 PM and 4 PM, the same times as the NHL dashboard. The published site is updated at those times too, right after the NHL page. An open page moves to the new day by itself and reloads every 10 minutes.</li>
       </ul>
       <p class="sub2">Data: ESPN public endpoints. Betting lines: Kalshi public markets. Projections are statistical estimates, not guarantees.</p>
     </details>
@@ -615,7 +615,7 @@ async function load(force) {
     const t = new Date(d.generated).toLocaleTimeString();
     const nd = d.next_daily ? new Date(d.next_daily).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
     const when = STATIC ? new Date(d.generated).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : t;
-    setAgent("live", `${STATIC ? "Published" : "Live"} · ${d.games.length} games · ${d.players.length} players · updated ${when}${nd ? ` · next daily refresh ${nd}` : ""}`);
+    setAgent("live", `${STATIC ? "Published" : "Live"} · ${d.games.length} games · ${d.players.length} players · updated ${when}${nd ? ` · next update ${nd}` : ""}`);
     if (!d.games.length) $("tbody").innerHTML = `<tr><td class="empty" colspan="${COLS.length}">No NBA games on this date.</td></tr>`;
   } catch (err) {
     setAgent("", "Error: " + err.message);
