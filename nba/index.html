@@ -214,8 +214,8 @@
         <li><b>Head-to-head</b> — the player's past PRA against tonight's opponent, shown for context only. Splits built from a handful of games added noise in the backtest, so team-level defense is used instead.</li>
         <li><b>Home / away</b> — home PRA minus away PRA (H−A), also shown for context and not applied, for the same reason.</li>
         <li><b>Multivariate Poisson</b> — PRA isn't three independent counts. Each pair of stats shares a common-shock Poisson term (a bivariate Poisson per pair, e.g. a made basket off a rebound), fitted from the player's covariances. On top of that, a game-level Gamma factor for minutes, pace and blowouts moves all three together. That factor's size (φ) comes from how much more the player's stats swing than a plain Poisson would, plus the uncertainty left in the Bayesian posterior.</li>
-        <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
-        <li><b>Market blend</b> — when Kalshi prices a player, the model's distribution is rescaled to fit Kalshi's prices across all of his listed lines, giving a Kalshi-implied projection that also answers lines Kalshi doesn't list (the ± stepper). On this season's settled markets (market_backtest.py: 349 markets, prices at 9 AM and at tip-off), every blend that gave the model any weight scored worse than the market alone. So priced players (marked <b>K</b>) show the market-implied numbers, uncalibrated, and everyone else uses the model. Disagreement between the model and the market was not predictive.</li>
+        <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. In All Projections, − lowers a player's line by up to 10 and + raises it by up to 3, 1 at a time, and the probability updates. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
+        <li><b>Market blend</b> — when Kalshi prices a player, the model's distribution is rescaled to fit Kalshi's prices across all of his listed lines, giving a Kalshi-implied projection that also answers lines Kalshi doesn't list (the − / + line buttons). On this season's settled markets (market_backtest.py: 349 markets, prices at 9 AM and at tip-off), every blend that gave the model any weight scored worse than the market alone. So priced players (marked <b>K</b>) show the market-implied numbers, uncalibrated, and everyone else uses the model. Disagreement between the model and the market was not predictive.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and every day at 7:30 AM, 9 AM, 1 PM and 4 PM, the same times as the NHL dashboard. The published site is updated at those times too, right after the NHL page. An open page moves to the new day by itself and reloads every 10 minutes.</li>
@@ -258,7 +258,7 @@ const sgn = (v, d = 1) => v == null ? "—" : (v > 0.05 ? "+" : "") + v.toFixed(
 const cls = v => v == null || Math.abs(v) < 0.05 ? "zero" : v > 0 ? "pos" : "neg";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const LINE_RANGE = 3, LINE_STEP = 1;
+const LINE_DOWN = 10, LINE_UP = 3, LINE_STEP = 1;  // lower a line by up to 10, raise by up to 3
 // Platt scaling fitted on last season's backtest (calibrate.py): P' = 1 / (1 + e^-(a*logit(P) + b))
 function calibrate(p) {
   const c = S.data.calibration || { a: 1, b: 0 }, q = Math.min(1 - 1e-4, Math.max(1e-4, p));
@@ -352,10 +352,10 @@ function spark(vals, ref) {
 }
 
 function stepper(p) {
-  return `<span class="stepper"><button data-step="-1" data-id="${p.id}" ${p.off <= -LINE_RANGE ? "disabled" : ""} aria-label="Lower line">−</button><b>${fmt(p.line)}</b><button data-step="1" data-id="${p.id}" ${p.off >= LINE_RANGE ? "disabled" : ""} aria-label="Raise line">+</button></span>`;
+  return `<span class="stepper"><button data-step="-1" data-id="${p.id}" ${p.off <= -LINE_DOWN || p.line - LINE_STEP < 0 ? "disabled" : ""} aria-label="Lower line">−</button><b>${fmt(p.line)}</b><button data-step="1" data-id="${p.id}" ${p.off >= LINE_UP ? "disabled" : ""} aria-label="Raise line">+</button></span>`;
 }
 function stepLine(id, dir) {
-  const o = Math.max(-LINE_RANGE, Math.min(LINE_RANGE, (S.offsets[id] || 0) + dir * LINE_STEP));
+  const o = Math.max(-LINE_DOWN, Math.min(LINE_UP, (S.offsets[id] || 0) + dir * LINE_STEP));
   if (o) S.offsets[id] = o; else delete S.offsets[id];
   save(); render();
 }
