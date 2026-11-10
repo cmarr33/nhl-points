@@ -140,6 +140,16 @@
   .pick.over { background: rgba(12,163,12,.18); color: #3fbf3f; }
   .pick.under { background: rgba(230,103,103,.16); color: var(--bad); }
   .leg .num { text-align: right; }
+  .props div { white-space: nowrap; font-size: 12px; }
+  .props .st { display: inline-block; width: 14px; color: var(--muted); }
+  .props .best { margin-top: 2px; }
+  .picks { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .picks h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  .prow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 96px 44px 52px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--grid); font-size: 13px; }
+  .prow img { width: 30px; height: 22px; object-fit: cover; object-position: top; border-radius: 3px; background: var(--surface-2); }
+  .prow .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .num { text-align: right; }
+  @media (max-width: 900px) { .picks { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .slide { grid-template-columns: 1fr; text-align: center; padding: 8px 48px; } .rank, .big { text-align: center; width: auto; } .slide .hs { margin: 0 auto; } .slide .mu, .chips { justify-content: center; } }
 </style>
 </head>
@@ -178,6 +188,15 @@
   </div>
 
   <section class="panel">
+    <h2>Best prop picks <span class="sub2">points, rebounds, assists and PRA vs Kalshi, each priced on its own</span></h2>
+    <div class="picks">
+      <div><h3>Best value <span class="sub2">model probability minus Kalshi price</span></h3><div id="pickValue"></div></div>
+      <div><h3>Highest probability <span class="sub2">the model's most likely side</span></h3><div id="pickProb"></div></div>
+    </div>
+    <p class="sub2">Uses the filters below. In the backtest the Kalshi price alone beat every model blend, so a big "edge" often means the model is missing news (an injury, a role change) the market already has. Kalshi also tends to price OVERs a few points higher than the model, so most value picks are UNDERs. Treat an edge as a lead to check, not a sure thing.</p>
+  </section>
+
+  <section class="panel">
     <div class="filters">
       <div class="fg"><span>Scoring probability (multi-select)</span><div class="buckets" id="buckets"></div></div>
       <div class="fg"><span>Probability line</span>
@@ -198,7 +217,7 @@
     <div style="overflow-x:auto">
       <table>
         <thead><tr id="thead"></tr></thead>
-        <tbody id="tbody"><tr><td class="loading" colspan="10">Loading projections… first load of a day pulls every player's game log (≈30s).</td></tr></tbody>
+        <tbody id="tbody"><tr><td class="loading" colspan="11">Loading projections… first load of a day pulls every player's game log (≈30s).</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -216,6 +235,7 @@
         <li><b>Multivariate Poisson</b> — PRA isn't three independent counts. Each pair of stats shares a common-shock Poisson term (a bivariate Poisson per pair, e.g. a made basket off a rebound), fitted from the player's covariances. On top of that, a game-level Gamma factor for minutes, pace and blowouts moves all three together. That factor's size (φ) comes from how much more the player's stats swing than a plain Poisson would, plus the uncertainty left in the Bayesian posterior.</li>
         <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. In All Projections, − lowers a player's line by up to 10 and + raises it by up to 3, 1 at a time, and the probability updates. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
         <li><b>Market blend</b> — when Kalshi prices a player, the model's distribution is rescaled to fit Kalshi's prices across all of his listed lines, giving a Kalshi-implied projection that also answers lines Kalshi doesn't list (the − / + line buttons). On this season's settled markets (market_backtest.py: 349 markets, prices at 9 AM and at tip-off), every blend that gave the model any weight scored worse than the market alone. So priced players (marked <b>K</b>) show the market-implied numbers, uncalibrated, and everyone else uses the model. Disagreement between the model and the market was not predictive.</li>
+        <li><b>Props: points, rebounds, assists</b> — each stat is projected on its own (projected minutes × its per-minute rate × opponent pace and defense) and gets its own distribution: a Poisson count times the same game-level Gamma factor. On the February-onward backtest these per-stat probabilities were within about 1 point of the actual hit rates. PRA is their sum, with the shared shocks counted. Each Kalshi points, rebounds, assists and PRA line is priced from the model (before any market blend), both OVER and UNDER. <i>Best value</i> is the side where the model's probability most exceeds Kalshi's price. <i>Highest probability</i> is the model's most likely side. A per-stat drivers regression (usage, trends, rest, Vegas spread and total, opponent rebounding) was tested on top and didn't improve the probabilities out of sample, so it isn't used.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and every day at 7:30 AM, 9 AM, 1 PM and 4 PM, the same times as the NHL dashboard. The published site is updated at those times too, right after the NHL page. An open page moves to the new day by itself and reloads every 10 minutes.</li>
@@ -238,6 +258,7 @@ const COLS = [
   { k: "name", t: "Player" },
   { k: "opp", t: "Matchup" },
   { k: "proj", t: "Proj PRA", num: 1 },
+  { k: "edge", t: "Props vs Kalshi", num: 1 },
   { k: "proj_min", t: "Minutes", num: 1 },
   { k: "baseline", t: "Bayes rate", num: 1 },
   { k: "form", t: "Form (vs prior)", num: 1 },
@@ -282,6 +303,7 @@ function enrich() {
     p.prob = p.market_weight ? (p.mkt != null ? p.mkt : p.raw) : calibrate(p.raw);
     p.pct = Math.round(p.prob * 100);
     p.bucket = bucketOf(p.pct);
+    p.edge = p.best_value ? p.best_value.edge : null;
   }
 }
 
@@ -311,6 +333,7 @@ function render() {
   renderTable(rows);
   renderSlider([...rows].sort((a, b) => b.prob - a.prob || b.proj - a.proj).slice(0, 10));
   renderCombos();
+  renderPicks(pool);
   $("count").textContent = `${rows.length} players`;
   const m = $("lineMode").value;
   const ln = m === "fixed" ? `over ${$("lineVal").value} PRA` : m === "book" ? `over each player's betting line (Kalshi; own line where unpriced)` : "over own baseline line";
@@ -364,6 +387,33 @@ document.addEventListener("click", e => {
   stepLine(b.dataset.id, +b.dataset.step);
 });
 
+const STAT_NAME = { pts: "PTS", reb: "REB", ast: "AST", pra: "PRA" };
+const STAT_SHORT = { pts: "P", reb: "R", ast: "A" };
+const pickLabel = b => `${b.side === "over" ? "OVER" : "UNDER"} ${fmt(b.line)} ${STAT_NAME[b.stat]}`;
+function propsCell(p) {
+  const pr = p.props || {};
+  const lines = ["pts", "reb", "ast"].filter(k => pr[k] && pr[k].model != null).map(k => {
+    const x = pr[k], d = x.model - x.mkt;
+    return `<div title="${STAT_NAME[k]} over ${x.line}: model ${Math.round(x.model * 100)}%, Kalshi ${Math.round(x.mkt * 100)}%"><span class="st">${STAT_SHORT[k]}</span>${fmt(x.line)} <b>${Math.round(x.model * 100)}%</b> <span class="sub2">mkt ${Math.round(x.mkt * 100)}%</span> <span class="${cls(d * 100)}">${sgn(d * 100, 0)}</span></div>`;
+  });
+  if (!lines.length) return `<span class="sub2">no Kalshi props</span>`;
+  const b = p.best_value;
+  return `<div class="props">${lines.join("")}${b ? `<div class="best sub2">★ ${pickLabel(b)} <span class="${cls(b.edge * 100)}">${sgn(b.edge * 100, 0)}</span></div>` : ""}</div>`;
+}
+function pickRow(p, b, val) {
+  return `<div class="prow"><img src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'" alt="">
+    <div class="who">${esc(p.name)}<span class="sub2" style="display:block">${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)} · proj ${fmt(p[`proj_${b.stat}`] ?? p.proj)} ${STAT_NAME[b.stat]}</span></div>
+    <span class="pick ${b.side}">${pickLabel(b)}</span>
+    <b class="num">${Math.round(b.model * 100)}%</b>
+    <span class="num sub2">${val ? `<span class="${cls(b.edge * 100)}">${sgn(b.edge * 100, 0)}</span>` : `mkt ${Math.round(b.mkt * 100)}%`}</span></div>`;
+}
+function renderPicks(pool) {
+  const top = (key, sortKey) => pool.filter(p => p[key]).sort((a, b) => b[key][sortKey] - a[key][sortKey]).slice(0, 8);
+  const v = top("best_value", "edge"), q = top("best_prob", "model");
+  $("pickValue").innerHTML = v.map(p => pickRow(p, p.best_value, true)).join("") || `<div class="empty">No Kalshi props for these players yet.</div>`;
+  $("pickProb").innerHTML = q.map(p => pickRow(p, p.best_prob, false)).join("") || `<div class="empty">No Kalshi props for these players yet.</div>`;
+}
+
 function renderTable(rows) {
   if (!rows.length) { $("tbody").innerHTML = `<tr><td class="empty" colspan="${COLS.length}">No players match these filters.</td></tr>`; return; }
   $("tbody").innerHTML = rows.map((p, i) => {
@@ -372,6 +422,7 @@ function renderTable(rows) {
       <td><div class="pl"><img loading="lazy" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'"><div><div>${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div><div class="sub">${esc(p.team)} · ${esc(p.pos || "")} · ${fmt(p.mpg, 0)} mpg</div></div></div></td>
       <td><div class="mu-cell"><span class="ha">${p.home ? "HOME" : "AWAY"}</span>${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)}</div></td>
       <td class="num"><div class="projv">${fmt(p.proj)}${p.market_weight ? ` <span class="mk" title="Kalshi-implied projection. Model alone: ${fmt(p.model_proj)}">K</span>` : ""}</div><div class="sub2">${fmt(p.proj_pts)} / ${fmt(p.proj_reb)} / ${fmt(p.proj_ast)}</div></td>
+      <td class="num">${propsCell(p)}</td>
       <td class="num">${fmt(p.proj_min)} <span class="sub2">±${fmt(p.min_sd)}</span><div class="sub2">${p.min_boost > 0.05 ? `<span class="pos" title="Out: ${esc((p.out_teammates || []).join(", "))}">+${fmt(p.min_boost)} teammates out</span>` : `${fmt(p.per36)} per 36`}</div></td>
       <td class="num">${fmt(p.baseline)} <span class="sub2">±${fmt(p.post_sd)}</span><div class="sub2">prior ${fmt(p.prior_mean)} · ${p.cur_games} gp</div></td>
       <td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>
@@ -397,6 +448,8 @@ $("tbody").addEventListener("mousemove", e => {
     <div>${fmt(p.baseline)} Bayes rate (prior ${fmt(p.prior_mean)}) ${sgn(p.matchup)} opponent pace/defense (minutes included) = <b>${fmt(p.proj)}</b></div>
     ${p.market_weight ? `<div>Shown: Kalshi-implied ${fmt(p.market_proj)} PRA (model alone ${fmt(p.model_proj)}, market weight ${Math.round(p.market_weight * 100)}%)</div>` : ""}
     <div>P(PRA &gt; ${fmt(p.line)}) = <b>${p.pct}%</b>${p.mkt != null ? ` · Kalshi market ${Math.round(p.mkt * 100)}%` : ""}</div>
+    ${["pts", "reb", "ast"].filter(k => p.props && p.props[k]).map(k => `<div>Kalshi ${STAT_NAME[k]}: ${p.props[k].strikes.map(([l, q]) => `${l} (${Math.round(q * 100)}%)`).join(", ")}</div>`).join("")}
+    ${p.best_prob ? `<div>Most likely: ${pickLabel(p.best_prob)} at ${Math.round(p.best_prob.model * 100)}% (Kalshi ${Math.round(p.best_prob.mkt * 100)}%)</div>` : ""}
     ${p.book_strikes ? `<div>Kalshi lines: ${p.book_strikes.map(([l, q]) => `${l} (${Math.round(q * 100)}%)`).join(", ")}</div>` : ""}`;
   tip.style.display = "block";
   const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
