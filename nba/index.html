@@ -193,6 +193,8 @@
       <div><h3>Best value <span class="sub2">model probability minus Kalshi price</span></h3><div id="pickValue"></div></div>
       <div><h3>Highest probability <span class="sub2">the model's most likely side</span></h3><div id="pickProb"></div></div>
     </div>
+    <h3 style="margin-top:16px" id="safeHead"></h3>
+    <div class="picks" id="pickSafe"></div>
     <p class="sub2">Uses the filters below. In the backtest the Kalshi price alone beat every model blend, so a big "edge" often means the model is missing news (an injury, a role change) the market already has. Kalshi also tends to price OVERs a few points higher than the model, so most value picks are UNDERs. Treat an edge as a lead to check, not a sure thing.</p>
   </section>
 
@@ -201,7 +203,7 @@
       <div class="fg"><span>Scoring probability (multi-select)</span><div class="buckets" id="buckets"></div></div>
       <div class="fg"><span>Probability line</span>
         <div style="display:flex;gap:6px">
-          <select id="lineMode"><option value="book">Betting line (Kalshi)</option><option value="player">Player's own line (baseline)</option><option value="fixed">Fixed PRA line</option></select>
+          <select id="lineMode"><option value="book">Betting line (Kalshi)</option><option value="player">Player's own line (baseline)</option><option value="fixed">Fixed PRA line</option><option value="target">Target probability (%)</option></select>
           <input type="number" id="lineVal" value="24.5" step="1" style="width:80px" disabled>
           <button id="resetLines" title="Put every player back on their starting line">Reset lines</button>
         </div>
@@ -236,6 +238,7 @@
         <li><b>Probability</b> — the server computes the full PRA distribution from that model, so P(PRA &gt; line) is read directly from it at any line. In All Projections, − lowers a player's line by up to 10 and + raises it by up to 3, 1 at a time, and the probability updates. That probability is then calibrated with Platt scaling (calibrate.py), fitted on last season's walk-forward backtest at many lines, so a stated 60% hits about 60% of the time.</li>
         <li><b>Market blend</b> — when Kalshi prices a player, the model's distribution is rescaled to fit Kalshi's prices across all of his listed lines, giving a Kalshi-implied projection that also answers lines Kalshi doesn't list (the − / + line buttons). On this season's settled markets (market_backtest.py: 349 markets, prices at 9 AM and at tip-off), every blend that gave the model any weight scored worse than the market alone. So priced players (marked <b>K</b>) show the market-implied numbers, uncalibrated, and everyone else uses the model. Disagreement between the model and the market was not predictive.</li>
         <li><b>Props: points, rebounds, assists</b> — each stat is projected on its own (projected minutes × its per-minute rate × opponent pace and defense) and gets its own distribution: a Poisson count times the same game-level Gamma factor. On the February-onward backtest these per-stat probabilities were within about 1 point of the actual hit rates. PRA is their sum, with the shared shocks counted. Each Kalshi points, rebounds, assists and PRA line is priced from the model (before any market blend), both OVER and UNDER. <i>Best value</i> is the side where the model's probability most exceeds Kalshi's price. <i>Highest probability</i> is the model's most likely side. A per-stat drivers regression (usage, trends, rest, Vegas spread and total, opponent rebounding) was tested on top and didn't improve the probabilities out of sample, so it isn't used.</li>
+        <li><b>Target probability</b> — the "Target probability (%)" line mode moves each player's PRA line to the highest line, in steps of 1, where the over still has at least that chance (71% by default). For Kalshi-priced players the chance is Kalshi's price where it lists that line (marked "Kalshi alt line") or the Kalshi-implied distribution between its lines. For everyone else it is the calibrated model. The ±line buttons still work on top. The "71%+ on Kalshi lines" list under Best prop picks does the same across points, rebounds, assists and PRA, OVER or UNDER, keeping only Kalshi lines where both Kalshi and the model clear the target. A higher target means safer legs that pay less.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. Each bucket suggests 2 combos of 3 players. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and every day at 7:30 AM, 9 AM, 1 PM and 4 PM, the same times as the NHL dashboard. The published site is updated at those times too, right after the NHL page. An open page moves to the new day by itself and reloads every 10 minutes.</li>
@@ -285,22 +288,34 @@ function calibrate(p) {
   const c = S.data.calibration || { a: 1, b: 0 }, q = Math.min(1 - 1e-4, Math.max(1e-4, p));
   return 1 / (1 + Math.exp(-(c.a * Math.log(q / (1 - q)) + c.b)));
 }
+const overAt = (sf, line) => { const k = Math.floor(line) + 1; return k <= 0 ? 1 : sf && k < sf.length ? sf[k] : 0; };
+// P(PRA > line) as the table shows it: Kalshi's price where it lists the line, the Kalshi-implied
+// distribution for other lines of priced players, the calibrated model for everyone else.
+function probAt(p, line) {
+  const strike = (p.book_strikes || []).find(([l]) => l === line), raw = overAt(p.sf, line);
+  const mkt = strike ? strike[1] : null;
+  return { raw, mkt, prob: p.market_weight ? (mkt != null ? mkt : raw) : calibrate(raw) };
+}
+const targetPct = () => Math.min(99, Math.max(1, parseFloat($("lineVal").value) || 71)) / 100;
+// Highest PRA line (in steps of 1) whose over still has at least the target probability, priced as
+// the table prices it (Kalshi where it lists the line, Kalshi-implied or model otherwise).
+function targetLine(p, t) {
+  for (let l = Math.floor(p.proj) + 5.5; l >= 0.5; l--) if (probAt(p, l).prob >= t) return l;
+  return 0.5;
+}
 function enrich() {
   const mode = $("lineMode").value, fixed = parseFloat($("lineVal").value) || 0;
   for (const p of S.data.players) {
     const own = Math.floor(p.baseline) + 0.5;
     if (mode === "book" && p.book_line != null) { p.baseLine = p.book_line; p.lineSrc = "Kalshi"; }
     else if (mode === "fixed") { p.baseLine = fixed; p.lineSrc = "fixed"; }
+    else if (mode === "target") { p.baseLine = targetLine(p, targetPct()); p.lineSrc = "target"; }
     else { p.baseLine = own; p.lineSrc = "own"; }
     p.off = S.offsets[p.id] || 0;
     p.line = p.baseLine + p.off;
-    const strike = (p.book_strikes || []).find(([l]) => l === p.line);
-    p.mkt = strike ? strike[1] : null;  // market P(over) at exactly this line, when Kalshi lists it
-    const k = Math.floor(p.line) + 1;  // P(PRA > line) = P(PRA >= floor(line) + 1), from the model's distribution
-    p.raw = k <= 0 ? 1 : k < p.sf.length ? p.sf[k] : 0;
     // Priced players: Kalshi's own price where it lists this exact line, else the Kalshi-implied
     // distribution; calibration was fitted on the model, so it only applies to unpriced players.
-    p.prob = p.market_weight ? (p.mkt != null ? p.mkt : p.raw) : calibrate(p.raw);
+    Object.assign(p, probAt(p, p.line));
     p.pct = Math.round(p.prob * 100);
     p.bucket = bucketOf(p.pct);
     p.edge = p.best_value ? p.best_value.edge : null;
@@ -336,7 +351,7 @@ function render() {
   renderPicks(pool);
   $("count").textContent = `${rows.length} players`;
   const m = $("lineMode").value;
-  const ln = m === "fixed" ? `over ${$("lineVal").value} PRA` : m === "book" ? `over each player's betting line (Kalshi; own line where unpriced)` : "over own baseline line";
+  const ln = m === "target" ? `over each player's highest line with a ${Math.round(targetPct() * 100)}%+ chance` : m === "fixed" ? `over ${$("lineVal").value} PRA` : m === "book" ? `over each player's betting line (Kalshi; own line where unpriced)` : "over own baseline line";
   $("topsub").textContent = `· ranked by probability ${ln}`;
 }
 
@@ -407,7 +422,34 @@ function pickRow(p, b, val) {
     <b class="num">${Math.round(b.model * 100)}%</b>
     <span class="num sub2">${val ? `<span class="${cls(b.edge * 100)}">${sgn(b.edge * 100, 0)}</span>` : `mkt ${Math.round(b.mkt * 100)}%`}</span></div>`;
 }
+// Every Kalshi-listed line (points, rebounds, assists, PRA; OVER or UNDER) where both Kalshi and
+// the model give at least the target chance. Per player and stat, the line closest to the target
+// (best payout). Ranked by how much the model exceeds the price.
+function safePicks(pool, t) {
+  const out = [];
+  for (const p of pool) {
+    const sets = Object.entries(p.props || {}).map(([k, x]) => [k, x.strikes, p.stat_sf && p.stat_sf[k]]);
+    if (p.book_strikes) sets.push(["pra", p.book_strikes, p.model_sf || p.sf]);
+    for (const [stat, strikes, sf] of sets) {
+      if (!sf) continue;
+      let best = null;
+      for (const [line, q] of strikes) {
+        const m = overAt(sf, line);
+        for (const [side, mm, qq] of [["over", m, q], ["under", 1 - m, 1 - q]]) {
+          if (mm < t || qq < t) continue;
+          if (!best || qq < best.mkt) best = { stat, side, line, model: mm, mkt: qq, edge: mm - qq };
+        }
+      }
+      if (best) out.push([p, best]);
+    }
+  }
+  return out.sort((a, b) => b[1].edge - a[1].edge);
+}
 function renderPicks(pool) {
+  const t = $("lineMode").value === "target" ? targetPct() : 0.71, safe = safePicks(pool, t).slice(0, 16), pc = Math.round(t * 100);
+  $("safeHead").innerHTML = `${pc}%+ on Kalshi lines <span class="sub2">Kalshi and the model both give at least ${pc}%; per player and stat, the line nearest ${pc}% (best payout). Change the target with "Target probability (%)" below.</span>`;
+  const half = Math.ceil(safe.length / 2), rowsOf = xs => xs.map(([p, b]) => pickRow(p, b, true)).join("");
+  $("pickSafe").innerHTML = safe.length ? `<div>${rowsOf(safe.slice(0, half))}</div><div>${rowsOf(safe.slice(half))}</div>` : `<div class="empty">No Kalshi lines clear ${pc}% for both the model and the market.</div>`;
   const top = (key, sortKey) => pool.filter(p => p[key]).sort((a, b) => b[key][sortKey] - a[key][sortKey]).slice(0, 8);
   const v = top("best_value", "edge"), q = top("best_prob", "model");
   $("pickValue").innerHTML = v.map(p => pickRow(p, p.best_value, true)).join("") || `<div class="empty">No Kalshi props for these players yet.</div>`;
@@ -428,7 +470,7 @@ function renderTable(rows) {
       <td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>
       <td class="num"><span class="${cls(p.matchup)}">${sgn(p.matchup)}</span><div class="sub2" title="Pace = expected possessions vs his usual opponents; defense = PRA allowed per possession vs his usual opponents">pace ×${fmt(p.pace_factor, 2)} · def ×${fmt(p.def_factor, 2)}</div><div class="sub2">H2H ${p.h2h_n ? fmt(p.h2h_avg) : "—"} (${p.h2h_n} gm)</div></td>
       <td class="num">H−A <span class="${cls(p.ha_diff)}">${sgn(p.ha_diff)}</span><div class="sub2">tonight <span class="${cls(p.venue)}">${sgn(p.venue)}</span></div></td>
-      <td class="num">${stepper(p)}<div class="sub2">${p.lineSrc === "Kalshi" ? "Kalshi" : p.lineSrc === "own" ? "own line" : "fixed"}${p.off ? ` ${p.off > 0 ? "+" : ""}${p.off}` : ""}${p.mkt != null ? ` · mkt ${Math.round(p.mkt * 100)}%` : ""}</div></td>
+      <td class="num">${stepper(p)}<div class="sub2">${p.lineSrc === "Kalshi" ? "Kalshi" : p.lineSrc === "own" ? "own line" : p.lineSrc === "target" ? ((p.book_strikes || []).some(([l]) => l === p.baseLine) ? "Kalshi alt line" : p.market_weight ? "Kalshi-implied" : "model line") : "fixed"}${p.off ? ` ${p.off > 0 ? "+" : ""}${p.off}` : ""}${p.mkt != null ? ` · mkt ${Math.round(p.mkt * 100)}%` : ""}</div></td>
       <td class="num"><div class="prob"><div class="bar"><i style="width:${p.pct}%;background:${b.color}"></i></div><b style="width:38px">${p.pct}%</b></div></td>
     </tr>`;
   }).join("");
@@ -523,7 +565,7 @@ function rankLegs(kind) {
   if (kind === "low") return legs.sort((a, b) => b.conf - a.conf);  // most confident calls
   // volatile players (above-median spread) with a moderate lean, ranked by size of the projected edge
   const cvs = legs.map(l => l.cv).sort((a, b) => a - b), medCv = cvs[Math.floor(cvs.length / 2)] || 0;
-  return legs.filter(l => l.cv >= medCv && l.conf >= 0.55 && l.conf <= 0.70).sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge));
+  return legs.filter(l => l.cv >= medCv && l.conf >= 0.55 && ($("lineMode").value === "target" || l.conf <= 0.70)).sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge));
 }
 // Greedy, no player reused, max one player per team and two per game in a combo (limits correlation)
 function generate(kind) {
@@ -677,7 +719,12 @@ async function load(force) {
 $("date").onchange = () => load(false);
 $("refresh").onclick = () => load(true);
 ["lineMode", "lineVal", "minMpg", "q", "hideOut"].forEach(id => $(id).addEventListener("input", () => {
-  if (id === "lineMode") $("lineVal").disabled = $("lineMode").value !== "fixed";
+  if (id === "lineMode") {
+    const m = $("lineMode").value;
+    $("lineVal").disabled = m !== "fixed" && m !== "target";
+    if (m === "target") { $("lineVal").value = 71; $("lineVal").title = "Target probability, %"; }
+    if (m === "fixed") { $("lineVal").value = 24.5; $("lineVal").title = "PRA line"; }
+  }
   S.slide = 0; enrich();
   if (id !== "q") ensureCombos(true);  // rebuild suggested combos (ones you've edited are kept)
   render();
