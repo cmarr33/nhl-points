@@ -150,6 +150,40 @@
   .prow .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .prow .num { text-align: right; }
   @media (max-width: 900px) { .picks { grid-template-columns: 1fr; } }
+  main { padding-bottom: 96px; }
+  .viewsw { display: inline-flex; margin-left: 12px; padding: 2px; background: var(--surface-2); border: 1px solid var(--axis); border-radius: 7px; vertical-align: middle; }
+  .viewsw button { border: 0; background: transparent; padding: 3px 10px; font-size: 12px; color: var(--ink-2); border-radius: 5px; }
+  .viewsw button.on { background: var(--accent); color: #fff; }
+  .addbtns { display: inline-flex; gap: 4px; }
+  button.add { font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 5px; border: 1px solid var(--axis); background: transparent; white-space: nowrap; }
+  button.add.over { color: #3fbf3f; } button.add.under { color: var(--bad); }
+  button.add.over.on { background: rgba(12,163,12,.25); border-color: #3fbf3f; }
+  button.add.under.on { background: rgba(230,103,103,.22); border-color: var(--bad); }
+  button.pick[data-slip] { width: 100%; }
+  button.pick[data-slip].on { outline: 2px solid currentColor; }
+  .slide .add { margin-top: 8px; font-size: 13px; padding: 6px 12px; }
+  #slip { position: fixed; right: 20px; bottom: 16px; width: 360px; max-width: calc(100vw - 32px); z-index: 20; background: var(--surface); border: 1px solid var(--axis); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  #slip .sh { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; background: transparent; border: 0; border-radius: 12px; text-align: left; }
+  #slip .sh b { font-size: 14px; }
+  #slip .sh .odds { margin-left: auto; color: var(--ink-2); font-size: 12px; }
+  #slip .sh .odds b { color: var(--ink); font-size: 15px; }
+  #slip .sb { border-top: 1px solid var(--grid); max-height: 55vh; overflow-y: auto; }
+  #slip.closed .sb { display: none; }
+  #slip .sl { display: grid; grid-template-columns: minmax(0, 1fr) auto 40px 26px; gap: 8px; align-items: center; padding: 7px 14px; border-bottom: 1px solid var(--grid); font-size: 13px; }
+  #slip .sl .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #slip .sl .pick { padding: 3px 7px; border: 0; cursor: pointer; }
+  #slip .sf { padding: 10px 14px; font-size: 12px; color: var(--ink-2); display: grid; gap: 4px; }
+  #slip .sf .row { display: flex; justify-content: space-between; }
+  #slip .sf .row b { color: var(--ink); }
+  #slip .warn { color: #fab219; }
+  #slip .empty { padding: 16px; }
+  #slip .acts2 { display: flex; gap: 8px; padding: 0 14px 12px; }
+  #slip .acts2 button { flex: 1; font-size: 12px; }
+  @media (max-width: 700px) {
+    header { padding: 10px 16px; } main { padding: 16px 16px 96px; }
+    #slip { right: 8px; left: 8px; bottom: 8px; width: auto; max-width: none; }
+    td, th { padding: 6px 4px; } .pl img { display: none; } .bar { width: 44px; }
+  }
   @media (max-width: 900px) { .slide { grid-template-columns: 1fr; text-align: center; padding: 8px 48px; } .rank, .big { text-align: center; width: auto; } .slide .hs { margin: 0 auto; } .slide .mu, .chips { justify-content: center; } }
 </style>
 </head>
@@ -177,12 +211,12 @@
   <div class="combos">
     <section class="panel">
       <h2 class="ch">High Risk - High Reward <button id="resetHigh" hidden>Reset to suggested</button></h2>
-      <p class="sub2 cdesc">Volatile players with the biggest projected edge over or under their line. Fewer combos hit, but each one pays more. Click a pick to flip OVER/UNDER, ⇄ to replace a player, ✕ to remove one.</p>
+      <p class="sub2 cdesc">Volatile players with the biggest projected edge over or under their line. Fewer combos hit, but each one pays more. Click a pick to flip OVER/UNDER, ⇄ to replace a player, ✕ to remove one, or "Use as slip" to copy it to your bet slip.</p>
       <div id="comboHigh"></div>
     </section>
     <section class="panel">
       <h2 class="ch">Low Risk - Low Reward <button id="resetLow" hidden>Reset to suggested</button></h2>
-      <p class="sub2 cdesc">The model's most confident over/under calls against each player's line. More likely to hit, but pays less. Click a pick to flip OVER/UNDER, ⇄ to replace a player, ✕ to remove one.</p>
+      <p class="sub2 cdesc">The model's most confident over/under calls against each player's line. More likely to hit, but pays less. Click a pick to flip OVER/UNDER, ⇄ to replace a player, ✕ to remove one, or "Use as slip" to copy it to your bet slip.</p>
       <div id="comboLow"></div>
     </section>
   </div>
@@ -195,13 +229,13 @@
     </div>
     <h3 style="margin-top:16px" id="safeHead"></h3>
     <div class="picks" id="pickSafe"></div>
-    <p class="sub2">Uses the filters below. In the backtest the Kalshi price alone beat every model blend, so a big "edge" often means the model is missing news (an injury, a role change) the market already has. Kalshi also tends to price OVERs a few points higher than the model, so most value picks are UNDERs. Treat an edge as a lead to check, not a sure thing.</p>
+    <p class="sub2">Click any pick to add it to your bet slip. Uses the filters below. In the backtest the Kalshi price alone beat every model blend, so a big "edge" often means the model is missing news (an injury, a role change) the market already has. Kalshi also tends to price OVERs a few points higher than the model, so most value picks are UNDERs. Treat an edge as a lead to check, not a sure thing.</p>
   </section>
 
   <section class="panel">
     <div class="filters">
-      <div class="fg"><span>Scoring probability (multi-select)</span><div class="buckets" id="buckets"></div></div>
-      <div class="fg"><span>Probability line</span>
+      <div class="fg"><span>Chance of going over (pick any)</span><div class="buckets" id="buckets"></div></div>
+      <div class="fg"><span>Line to beat</span>
         <div style="display:flex;gap:6px">
           <select id="lineMode"><option value="book">Betting line (Kalshi)</option><option value="player">Player's own line (baseline)</option><option value="fixed">Fixed PRA line</option><option value="target">Target probability (%)</option></select>
           <input type="number" id="lineVal" value="24.5" step="1" style="width:80px" disabled>
@@ -215,7 +249,7 @@
   </section>
 
   <section class="panel">
-    <h2>All projections <span class="sub2" id="count"></span></h2>
+    <h2>All projections <span class="sub2" id="count"></span><span class="viewsw" id="viewsw"><button data-v="simple">Simple</button><button data-v="detail">Detailed</button></span></h2>
     <div style="overflow-x:auto">
       <table>
         <thead><tr id="thead"></tr></thead>
@@ -241,6 +275,8 @@
         <li><b>Props: points, rebounds, assists</b> — each stat is projected on its own (projected minutes × its per-minute rate × opponent pace and defense) and gets its own distribution: a Poisson count times the same game-level Gamma factor. On the February-onward backtest these per-stat probabilities were within about 1 point of the actual hit rates. PRA is their sum, with the shared shocks counted. Each Kalshi points, rebounds, assists and PRA line is priced from the model (before any market blend), both OVER and UNDER. <i>Best value</i> is the side where the model's probability most exceeds Kalshi's price. <i>Highest probability</i> is the model's most likely side. A per-stat drivers regression (usage, trends, rest, Vegas spread and total, opponent rebounding) was tested on top and didn't improve the probabilities out of sample, so it isn't used.</li>
         <li><b>Target probability</b> — the "Target probability (%)" line mode moves each player's PRA line to the highest line, in steps of 1, where the over still has at least that chance (71% by default). For Kalshi-priced players the chance is Kalshi's price where it lists that line (marked "Kalshi alt line") or the Kalshi-implied distribution between its lines. For everyone else it is the calibrated model. The ±line buttons still work on top. The "71%+ on Kalshi lines" list under Best prop picks does the same across points, rebounds, assists and PRA, OVER or UNDER, keeping only Kalshi lines where both Kalshi and the model clear the target. A higher target means safer legs that pay less.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
+        <li><b>Simple and Detailed views</b> — Simple shows what you need to pick: projection, line, chance of going over, and Over / Under buttons. Detailed adds the model's inputs: Kalshi props, minutes, season rate (the Bayesian per-minute rate), form against last season, opponent pace and defense, and home/away. The choice is remembered in this browser.</li>
+        <li><b>Bet slip</b> — click Over or Under on any player, any pick under Best prop picks, the Top 10 card's add button, or "Use as slip" on a suggested combo. Each leg keeps the line it was added at, priced the same way as the table (Kalshi's price where it lists that line). Hit chance multiplies the legs, so it assumes they're independent; the slip warns when two legs share a game, because those results move together. Fair payout is 1 ÷ hit chance. The slip is saved in this browser for that date.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. Each bucket suggests 2 combos of 3 players. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and every day at 7:30 AM, 9 AM, 1 PM and 4 PM, the same times as the NHL dashboard. The published site is rebuilt at :00 and :35 past every hour by its own scheduled task (the NHL page updates on the half hour), while the host PC is on. An open page moves to the new day by itself and reloads every 10 minutes.</li>
       </ul>
@@ -249,6 +285,7 @@
   </section>
 </main>
 <div id="tip"></div>
+<aside id="slip" class="closed" aria-label="Bet slip"></aside>
 
 <script>window.STATIC_DATA = "data/";</script>
 <script>
@@ -258,21 +295,27 @@ const BUCKETS = [
   { key: 2, label: "51–70%", lo: 51, hi: 70, color: "var(--b2)" },
   { key: 3, label: "71%+", lo: 71, hi: 100, color: "var(--b3)" },
 ];
+// d: shown only in the Detailed view
 const COLS = [
   { k: "name", t: "Player" },
-  { k: "opp", t: "Matchup" },
-  { k: "proj", t: "Proj PRA", num: 1 },
-  { k: "edge", t: "Props vs Kalshi", num: 1 },
-  { k: "proj_min", t: "Minutes", num: 1 },
-  { k: "baseline", t: "Bayes rate", num: 1 },
-  { k: "form", t: "Form (vs prior)", num: 1 },
-  { k: "matchup", t: "vs Opponent", num: 1 },
-  { k: "venue", t: "Home/Away ±", num: 1 },
+  { k: "opp", t: "Matchup", d: 1 },
+  { k: "proj", t: "Projected PRA", num: 1 },
+  { k: "edge", t: "Props vs Kalshi", num: 1, d: 1 },
+  { k: "proj_min", t: "Minutes", num: 1, d: 1 },
+  { k: "baseline", t: "Season rate", num: 1, d: 1 },
+  { k: "form", t: "Form vs last season", num: 1, d: 1 },
+  { k: "matchup", t: "vs Opponent", num: 1, d: 1 },
+  { k: "venue", t: "Home/Away", num: 1, d: 1 },
   { k: "line", t: "Line", num: 1 },
-  { k: "prob", t: "Probability", num: 1 },
+  { k: "prob", t: "Chance over", num: 1 },
+  { k: "pick", t: "Add to slip", nosort: 1 },
 ];
+const VIEW_KEY = "nba-pra-view";
+const viewCols = () => COLS.filter(c => S.detail || !c.d);
 const S = { data: null, sort: "prob", dir: -1, buckets: new Set([0, 1, 2, 3]), game: null, slide: 0, timer: null,
-  offsets: {}, combos: { high: null, low: null }, edited: { high: false, low: false }, byId: {}, replacing: null };
+  offsets: {}, combos: { high: null, low: null }, edited: { high: false, low: false }, byId: {}, replacing: null,
+  slip: [], slipOpen: false, detail: false };
+try { S.detail = localStorage.getItem(VIEW_KEY) === "detail"; } catch (e) {}
 const $ = id => document.getElementById(id);
 const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
 $("date").value = today.toISOString().slice(0, 10);
@@ -350,6 +393,7 @@ function render() {
   renderSlider([...rows].sort((a, b) => b.prob - a.prob || b.proj - a.proj).slice(0, 10));
   renderCombos();
   renderPicks(pool);
+  renderSlip();
   $("count").textContent = `${rows.length} players`;
   const m = $("lineMode").value;
   const ln = m === "target" ? `over each player's highest line with a ${Math.round(targetPct() * 100)}%+ chance` : m === "fixed" ? `over ${$("lineVal").value} PRA` : m === "book" ? `over each player's betting line (Kalshi; own line where unpriced)` : "over own baseline line";
@@ -370,13 +414,24 @@ $("buckets").addEventListener("click", e => {
   render();
 });
 
+function renderView() {
+  [...$("viewsw").children].forEach(b => b.classList.toggle("on", (b.dataset.v === "detail") === S.detail));
+}
+$("viewsw").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  S.detail = b.dataset.v === "detail";
+  try { localStorage.setItem(VIEW_KEY, S.detail ? "detail" : "simple"); } catch (err) {}
+  renderView(); renderHead(); render();
+};
 function renderHead() {
-  $("thead").innerHTML = COLS.map(c =>
+  renderView();
+  $("thead").innerHTML = viewCols().map(c =>
     `<th data-k="${c.k}" class="${c.num ? "num" : ""} ${S.sort === c.k ? "sorted" : ""}">${c.t}${S.sort === c.k ? (S.dir < 0 ? " ▼" : " ▲") : ""}</th>`).join("");
 }
 $("thead").addEventListener("click", e => {
   const th = e.target.closest("th"); if (!th) return;
   const k = th.dataset.k;
+  if ((COLS.find(c => c.k === k) || {}).nosort) return;
   if (S.sort === k) S.dir *= -1; else { S.sort = k; S.dir = (k === "name" || k === "opp") ? 1 : -1; }
   renderHead(); render();
 });
@@ -419,7 +474,7 @@ function propsCell(p) {
 function pickRow(p, b, val) {
   return `<div class="prow"><img src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'" alt="">
     <div class="who">${esc(p.name)}<span class="sub2" style="display:block">${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)} · proj ${fmt(p[`proj_${b.stat}`] ?? p.proj)} ${STAT_NAME[b.stat]}</span></div>
-    <span class="pick ${b.side}">${pickLabel(b)}</span>
+    <button class="pick ${b.side} ${S.slip.some(l => l.id === p.id && l.stat === b.stat && l.line === b.line && l.over === (b.side === "over")) ? "on" : ""}" data-slip="${p.id}|${b.stat}|${b.line}|${b.side === "over" ? 1 : 0}" title="Add to your bet slip">${pickLabel(b)}</button>
     <b class="num">${Math.round(b.model * 100)}%</b>
     <span class="num sub2">${val ? `<span class="${cls(b.edge * 100)}">${sgn(b.edge * 100, 0)}</span>` : `mkt ${Math.round(b.mkt * 100)}%`}</span></div>`;
 }
@@ -464,30 +519,37 @@ function minCtx(p) {
   return `<div class="sub2" title="Minutes adjusted for role (recent starts${p.min_ctx_version === "lineup" ? ", tonight's posted lineup" : ""}), blowout risk from the Vegas spread, and back-to-backs">${role ? `<b>${role}</b> · ` : ""}<span class="${cls(d)}">${sgn(d)} min</span> role/spread/rest</div>`;
 }
 
+function lineSrcText(p) {
+  return p.lineSrc === "Kalshi" ? "Kalshi" : p.lineSrc === "own" ? "own line" : p.lineSrc === "target" ? ((p.book_strikes || []).some(([l]) => l === p.baseLine) ? "Kalshi alt line" : p.market_weight ? "Kalshi-implied" : "model line") : "fixed";
+}
+function addBtns(p) {
+  const on = side => S.slip.some(l => l.id === p.id && l.stat === "pra" && l.line === p.line && l.over === side) ? "on" : "";
+  return `<span class="addbtns"><button class="add over ${on(true)}" data-slip="${p.id}|pra|${p.line}|1" title="Add OVER ${fmt(p.line)} PRA to your slip">Over ${p.pct}%</button><button class="add under ${on(false)}" data-slip="${p.id}|pra|${p.line}|0" title="Add UNDER ${fmt(p.line)} PRA to your slip">Under ${100 - p.pct}%</button></span>`;
+}
+const CELL = {
+  name: p => `<td><div class="pl"><img loading="lazy" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'"><div><div>${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div><div class="sub">${S.detail ? `${esc(p.team)} · ${esc(p.pos || "")} · ${fmt(p.mpg, 0)} mpg` : `${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)} · ${fmt(p.proj_min, 0)} min`}</div></div></div></td>`,
+  opp: p => `<td><div class="mu-cell"><span class="ha">${p.home ? "HOME" : "AWAY"}</span>${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)}</div></td>`,
+  proj: p => `<td class="num"><div class="projv">${fmt(p.proj)}${p.market_weight ? ` <span class="mk" title="Kalshi-implied projection. Model alone: ${fmt(p.model_proj)}">K</span>` : ""}</div><div class="sub2">${fmt(p.proj_pts)} P / ${fmt(p.proj_reb)} R / ${fmt(p.proj_ast)} A</div></td>`,
+  edge: p => `<td class="num">${propsCell(p)}</td>`,
+  proj_min: p => `<td class="num">${fmt(p.proj_min)} <span class="sub2">±${fmt(p.min_sd)}</span><div class="sub2">${p.min_boost > 0.05 ? `<span class="pos" title="Out: ${esc((p.out_teammates || []).join(", "))}">+${fmt(p.min_boost)} teammates out</span>` : `${fmt(p.per36)} per 36`}</div>${minCtx(p)}</td>`,
+  baseline: p => `<td class="num">${fmt(p.baseline)} <span class="sub2">±${fmt(p.post_sd)}</span><div class="sub2">last season ${fmt(p.prior_mean)} · ${p.cur_games} gp</div></td>`,
+  form: p => `<td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>`,
+  matchup: p => `<td class="num"><span class="${cls(p.matchup)}">${sgn(p.matchup)}</span><div class="sub2" title="Pace = expected possessions vs his usual opponents; defense = PRA allowed per possession vs his usual opponents">pace ×${fmt(p.pace_factor, 2)} · def ×${fmt(p.def_factor, 2)}</div><div class="sub2">H2H ${p.h2h_n ? fmt(p.h2h_avg) : "—"} (${p.h2h_n} gm)</div></td>`,
+  venue: p => `<td class="num">H−A <span class="${cls(p.ha_diff)}">${sgn(p.ha_diff)}</span><div class="sub2">tonight <span class="${cls(p.venue)}">${sgn(p.venue)}</span></div></td>`,
+  line: p => `<td class="num">${stepper(p)}<div class="sub2">${lineSrcText(p)}${p.off ? ` ${p.off > 0 ? "+" : ""}${p.off}` : ""}${p.mkt != null && S.detail ? ` · mkt ${Math.round(p.mkt * 100)}%` : ""}</div></td>`,
+  prob: p => `<td class="num"><div class="prob"><div class="bar"><i style="width:${p.pct}%;background:${BUCKETS[p.bucket].color}"></i></div><b style="width:38px">${p.pct}%</b></div></td>`,
+  pick: p => `<td class="num">${addBtns(p)}</td>`,
+};
 function renderTable(rows) {
-  if (!rows.length) { $("tbody").innerHTML = `<tr><td class="empty" colspan="${COLS.length}">No players match these filters.</td></tr>`; return; }
-  $("tbody").innerHTML = rows.map((p, i) => {
-    const b = BUCKETS[p.bucket];
-    return `<tr data-i="${S.data.players.indexOf(p)}">
-      <td><div class="pl"><img loading="lazy" src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'"><div><div>${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div><div class="sub">${esc(p.team)} · ${esc(p.pos || "")} · ${fmt(p.mpg, 0)} mpg</div></div></div></td>
-      <td><div class="mu-cell"><span class="ha">${p.home ? "HOME" : "AWAY"}</span>${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)}</div></td>
-      <td class="num"><div class="projv">${fmt(p.proj)}${p.market_weight ? ` <span class="mk" title="Kalshi-implied projection. Model alone: ${fmt(p.model_proj)}">K</span>` : ""}</div><div class="sub2">${fmt(p.proj_pts)} / ${fmt(p.proj_reb)} / ${fmt(p.proj_ast)}</div></td>
-      <td class="num">${propsCell(p)}</td>
-      <td class="num">${fmt(p.proj_min)} <span class="sub2">±${fmt(p.min_sd)}</span><div class="sub2">${p.min_boost > 0.05 ? `<span class="pos" title="Out: ${esc((p.out_teammates || []).join(", "))}">+${fmt(p.min_boost)} teammates out</span>` : `${fmt(p.per36)} per 36`}</div>${minCtx(p)}</td>
-      <td class="num">${fmt(p.baseline)} <span class="sub2">±${fmt(p.post_sd)}</span><div class="sub2">prior ${fmt(p.prior_mean)} · ${p.cur_games} gp</div></td>
-      <td class="num">${spark(p.trend, p.prior_mean)} <span class="${cls(p.form)}">${sgn(p.form)}</span><div class="sub2">spread ±${fmt(p.sd)}</div></td>
-      <td class="num"><span class="${cls(p.matchup)}">${sgn(p.matchup)}</span><div class="sub2" title="Pace = expected possessions vs his usual opponents; defense = PRA allowed per possession vs his usual opponents">pace ×${fmt(p.pace_factor, 2)} · def ×${fmt(p.def_factor, 2)}</div><div class="sub2">H2H ${p.h2h_n ? fmt(p.h2h_avg) : "—"} (${p.h2h_n} gm)</div></td>
-      <td class="num">H−A <span class="${cls(p.ha_diff)}">${sgn(p.ha_diff)}</span><div class="sub2">tonight <span class="${cls(p.venue)}">${sgn(p.venue)}</span></div></td>
-      <td class="num">${stepper(p)}<div class="sub2">${p.lineSrc === "Kalshi" ? "Kalshi" : p.lineSrc === "own" ? "own line" : p.lineSrc === "target" ? ((p.book_strikes || []).some(([l]) => l === p.baseLine) ? "Kalshi alt line" : p.market_weight ? "Kalshi-implied" : "model line") : "fixed"}${p.off ? ` ${p.off > 0 ? "+" : ""}${p.off}` : ""}${p.mkt != null ? ` · mkt ${Math.round(p.mkt * 100)}%` : ""}</div></td>
-      <td class="num"><div class="prob"><div class="bar"><i style="width:${p.pct}%;background:${b.color}"></i></div><b style="width:38px">${p.pct}%</b></div></td>
-    </tr>`;
-  }).join("");
+  const cols = viewCols();
+  if (!rows.length) { $("tbody").innerHTML = `<tr><td class="empty" colspan="${cols.length}">No players match these filters.</td></tr>`; return; }
+  $("tbody").innerHTML = rows.map(p => `<tr data-i="${S.data.players.indexOf(p)}">${cols.map(c => CELL[c.k](p)).join("")}</tr>`).join("");
 }
 
 // tooltip with game-level detail
 $("tbody").addEventListener("mousemove", e => {
   const tr = e.target.closest("tr[data-i]"); const tip = $("tip");
-  if (!tr) { tip.style.display = "none"; return; }
+  if (!tr || e.target.closest("button")) { tip.style.display = "none"; return; }
   const p = S.data.players[+tr.dataset.i];
   tip.innerHTML = `<div class="t">${esc(p.name)} — ${p.home ? "vs" : "@"} ${esc(p.opp)}</div>
     <div>Last 5 PRA: ${p.last5.map(v => v.toFixed(0)).join(", ")} (avg ${fmt(p.last5_avg)})</div>
@@ -525,7 +587,7 @@ function renderSlider(top) {
         <div class="nm">${esc(p.name)}${p.injury ? `<span class="inj">● ${esc(p.injury)}</span>` : ""}</div>
         <div class="mu"><img src="${esc(p.team_logo)}" alt="">${esc(p.team)} ${p.home ? "vs" : "@"} <img src="${esc(p.opp_logo)}" alt="">${esc(p.opp)} <span class="ha">${p.home ? "HOME" : "AWAY"}</span></div>
         <div class="chips">
-          <span class="chip">Bayes rate <b>${fmt(p.baseline)}</b></span>
+          <span class="chip">Season rate <b>${fmt(p.baseline)}</b></span>
           <span class="chip">Minutes <b>${fmt(p.proj_min, 0)}</b>${p.min_boost > 0.05 ? ` <span class="pos">+${fmt(p.min_boost)}</span>` : ""}</span>
           <span class="chip">Form <span class="${cls(p.form)}">${sgn(p.form)}</span> vs prior ${fmt(p.prior_mean)}</span>
           <span class="chip">vs ${esc(p.opp)} <span class="${cls(p.matchup)}">${sgn(p.matchup)}</span> · pace ×${fmt(p.pace_factor, 2)} · def ×${fmt(p.def_factor, 2)}</span>
@@ -536,7 +598,8 @@ function renderSlider(top) {
       <div class="big" style="display:flex;gap:16px;align-items:center">
         ${ring(p.pct, b.color)}
         <div><div class="pct">${p.pct}%</div><div class="lbl">over ${fmt(p.line)} PRA${p.lineSrc === "Kalshi" ? " (Kalshi)" : ""}</div>
-        <div class="proj">${fmt(p.proj)} PRA</div><div class="pra">${fmt(p.proj_pts)} P · ${fmt(p.proj_reb)} R · ${fmt(p.proj_ast)} A</div></div>
+        <div class="proj">${fmt(p.proj)} PRA</div><div class="pra">${fmt(p.proj_pts)} P · ${fmt(p.proj_reb)} R · ${fmt(p.proj_ast)} A</div>
+        <button class="add over ${S.slip.some(l => l.id === p.id && l.stat === "pra" && l.line === p.line && l.over) ? "on" : ""}" data-slip="${p.id}|pra|${p.line}|1">+ Add OVER ${fmt(p.line)}</button></div>
       </div>
     </div>`;
   }).join("");
@@ -621,7 +684,7 @@ function comboHtml(kind) {
         <span class="mkt">${mkt != null ? `Kalshi-implied ${(1 / mkt).toFixed(1)}x` : `Kalshi prices ${priced.length}/${live.length} legs`}</span></span>` : `<span class="odds">Add players to price this combo</span>`;
     return `<div class="combo">
       <div class="combo-h"><b>Combo ${String.fromCharCode(65 + ci)}</b><span class="sub2">all ${live.length} must hit</span>${head}
-        <button class="ic" data-act="delcombo" data-k="${kind}" data-c="${ci}" title="Delete combo">✕</button></div>
+        ${live.length ? `<button class="ic" data-act="toslip" data-k="${kind}" data-c="${ci}" title="Replace your bet slip with this combo">Use as slip</button>` : ""}<button class="ic" data-act="delcombo" data-k="${kind}" data-c="${ci}" title="Delete combo">✕</button></div>
       ${live.map((l, li) => {
         const p = byId[l.id], pr = legProb(p, l.over);
         return S.replacing === `${kind}:${ci}:${li}`
@@ -650,6 +713,10 @@ function onComboEvent(e) {
     else if (act === "delcombo") editCombos(k, cs => { cs.splice(c, 1); });
     else if (act === "newcombo") editCombos(k, cs => { cs.push([]); });
     else if (act === "swap") { S.replacing = `${k}:${c}:${l}`; renderCombos(); }
+    else if (act === "toslip") {
+      S.slip = S.combos[k][c].filter(x => S.byId[x.id]).map(x => ({ id: x.id, stat: "pra", line: S.byId[x.id].line, over: x.over }));
+      S.slipOpen = true; save(); render();
+    }
     else if (act === "cancel") { S.replacing = null; renderCombos(); }
   } else if (e.type === "focusin" || e.type === "mousedown") {
     if (act === "add" && el.options.length === 1) {  // build the long player list only when it's opened
@@ -664,16 +731,85 @@ function onComboEvent(e) {
 ["click", "change", "focusin", "mousedown"].forEach(t => document.addEventListener(t, onComboEvent));
 function resetBucket(kind) { S.edited[kind] = false; S.combos[kind] = generate(kind); save(); renderCombos(); }
 
-// Your line adjustments and combo edits are kept per date in this browser.
+// ---- Bet slip: any PRA line, prop, or whole combo; legs keep the line they were added at ----
+const SLIP_MAX = 12;
+// Chance for one leg, priced the way the dashboard prices it: Kalshi's price where it lists that exact
+// line, otherwise the Kalshi-implied (PRA) or model (props) distribution.
+function slipLeg(l) {
+  const p = S.byId[l.id]; if (!p) return null;
+  let over, mkt = null, src;
+  if (l.stat === "pra") { const r = probAt(p, l.line); over = r.prob; mkt = r.mkt; src = r.mkt != null ? "Kalshi" : p.market_weight ? "Kalshi-implied" : "model"; }
+  else {
+    const strike = ((p.props || {})[l.stat]?.strikes || []).find(([x]) => x === l.line);
+    mkt = strike ? strike[1] : null;
+    over = mkt != null ? mkt : overAt(p.stat_sf && p.stat_sf[l.stat], l.line); src = mkt != null ? "Kalshi" : "model";
+  }
+  return { p, prob: l.over ? over : 1 - over, mkt: mkt == null ? null : (l.over ? mkt : 1 - mkt), src };
+}
+function toggleSlip(id, stat, line, over) {
+  const i = S.slip.findIndex(l => l.id === id && l.stat === stat && l.line === line);
+  if (i >= 0 && S.slip[i].over === over) S.slip.splice(i, 1);
+  else if (i >= 0) S.slip[i].over = over;
+  else if (S.slip.length < SLIP_MAX) { S.slip.push({ id, stat, line, over }); S.slipOpen = true; }
+  save(); render();
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-slip]"); if (!b) return;
+  const [id, stat, line, over] = b.dataset.slip.split("|");
+  toggleSlip(id, stat, parseFloat(line), over === "1");
+});
+function renderSlip() {
+  const legs = S.slip.map(l => [l, slipLeg(l)]).filter(([, x]) => x);
+  const el = $("slip");
+  if (!legs.length) {
+    el.className = S.slipOpen ? "" : "closed";
+    el.innerHTML = `<button class="sh" data-sact="toggle"><b>Bet slip</b><span class="odds">empty</span></button>
+      <div class="sb"><div class="empty">Click <b>Over</b> or <b>Under</b> on any player, a pick in Best prop picks, or <b>Use as slip</b> on a suggested combo.</div></div>`;
+    return;
+  }
+  const prob = legs.reduce((a, [, x]) => a * x.prob, 1);
+  const allMkt = legs.every(([, x]) => x.mkt != null) ? legs.reduce((a, [, x]) => a * x.mkt, 1) : null;
+  const games = {}; legs.forEach(([, x]) => games[x.p.game_id] = (games[x.p.game_id] || 0) + 1);
+  const sameGame = Object.values(games).some(n => n > 1);
+  el.className = S.slipOpen ? "" : "closed";
+  el.innerHTML = `<button class="sh" data-sact="toggle"><b>Bet slip · ${legs.length}</b><span class="odds">hit chance <b>${(prob * 100).toFixed(1)}%</b> · <b>${(1 / prob).toFixed(1)}x</b> ${S.slipOpen ? "▾" : "▴"}</span></button>
+    <div class="sb">
+      ${legs.map(([l, x], i) => `<div class="sl">
+        <div class="who">${esc(x.p.name)}<span class="sub2" style="display:block">${esc(x.p.team)} ${x.p.home ? "vs" : "@"} ${esc(x.p.opp)} · ${x.src}</span></div>
+        <button class="pick ${l.over ? "over" : "under"}" data-sact="flip" data-i="${i}" title="Switch OVER / UNDER">${l.over ? "OVER" : "UNDER"} ${fmt(l.line)} ${STAT_NAME[l.stat]}</button>
+        <b class="num">${Math.round(x.prob * 100)}%</b>
+        <button class="ic" data-sact="remove" data-i="${i}" title="Remove">✕</button></div>`).join("")}
+      <div class="sf">
+        <div class="row"><span>Hit chance (all ${legs.length} must hit)</span><b>${(prob * 100).toFixed(1)}%</b></div>
+        <div class="row"><span>Fair payout</span><b>${(1 / prob).toFixed(2)}x (${american(prob)})</b></div>
+        <div class="row"><span>Kalshi-implied payout</span><b>${allMkt != null ? `${(1 / allMkt).toFixed(2)}x` : "—"}</b></div>
+        ${allMkt == null ? `<div>Kalshi-implied payout needs a Kalshi price on every leg.</div>` : ""}
+        ${sameGame ? `<div class="warn">Some legs are from the same game. Their results move together, so the real hit chance can differ from the number above.</div>` : ""}
+      </div>
+      <div class="acts2"><button data-sact="clear">Clear slip</button></div>
+    </div>`;
+}
+$("slip").addEventListener("click", e => {
+  const b = e.target.closest("[data-sact]"); if (!b) return;
+  const a = b.dataset.sact, i = +b.dataset.i;
+  if (a === "toggle") { S.slipOpen = !S.slipOpen; renderSlip(); return; }
+  if (a === "flip") S.slip[i].over = !S.slip[i].over;
+  if (a === "remove") S.slip.splice(i, 1);
+  if (a === "clear") S.slip = [];
+  save(); render();
+});
+
+// Your line adjustments, combo edits and bet slip are kept per date in this browser.
 const storeKey = () => `nba-pra-${S.data.date}`;
 function save() {
   if (!S.data) return;
-  try { localStorage.setItem(storeKey(), JSON.stringify({ offsets: S.offsets, combos: S.combos, edited: S.edited })); } catch (e) {}
+  try { localStorage.setItem(storeKey(), JSON.stringify({ offsets: S.offsets, combos: S.combos, edited: S.edited, slip: S.slip })); } catch (e) {}
 }
 function restore() {
   let st = {};
   try { st = JSON.parse(localStorage.getItem(storeKey()) || "{}"); } catch (e) {}
   S.offsets = st.offsets || {};
+  S.slip = Array.isArray(st.slip) ? st.slip : [];
   S.edited = st.edited || { high: false, low: false };
   S.combos = { high: S.edited.high ? st.combos.high : null, low: S.edited.low ? st.combos.low : null };
 }
@@ -719,7 +855,7 @@ async function load(force) {
     const nd = d.next_daily ? new Date(d.next_daily).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
     const when = STATIC ? new Date(d.generated).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : t;
     setAgent("live", `${STATIC ? "Published" : "Live"} · ${d.games.length} games · ${d.players.length} players · updated ${when}${nd ? ` · next update ${nd}` : ""}`);
-    if (!d.games.length) $("tbody").innerHTML = `<tr><td class="empty" colspan="${COLS.length}">No NBA games on this date.</td></tr>`;
+    if (!d.games.length) $("tbody").innerHTML = `<tr><td class="empty" colspan="${viewCols().length}">No NBA games on this date.</td></tr>`;
   } catch (err) {
     setAgent("", "Error: " + err.message);
   }
