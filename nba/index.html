@@ -179,6 +179,14 @@
   #slip .empty { padding: 16px; }
   #slip .acts2 { display: flex; gap: 8px; padding: 0 14px 12px; }
   #slip .acts2 button { flex: 1; font-size: 12px; }
+  .prow[draggable="true"] { cursor: grab; }
+  .prow[draggable="true"]:hover { background: var(--surface-2); }
+  .prow.dragging { opacity: .45; }
+  .prow .grip { color: var(--muted); font-size: 12px; letter-spacing: -2px; margin-right: 2px; }
+  body.drag-on #slip { outline: 2px dashed var(--accent); outline-offset: 2px; }
+  body.drag-on #slip.drop { background: #1c2a3d; }
+  #slip .dropzone { display: none; padding: 12px 14px; color: var(--accent); font-weight: 600; text-align: center; }
+  body.drag-on #slip .dropzone { display: block; }
   @media (min-width: 1150px) {
     body.slip-open main { margin-right: 380px; }
     body.slip-open #slip { bottom: 16px; display: flex; flex-direction: column; }
@@ -247,7 +255,7 @@
     </div>
     <h3 style="margin-top:16px" id="safeHead"></h3>
     <div class="picks" id="pickSafe"></div>
-    <p class="sub2">Click any pick to add it to your bet slip. Uses the filters below. In the backtest the Kalshi price alone beat every model blend, so a big "edge" often means the model is missing news (an injury, a role change) the market already has. Kalshi also tends to price OVERs a few points higher than the model, so most value picks are UNDERs. Treat an edge as a lead to check, not a sure thing.</p>
+    <p class="sub2">Click any pick, or drag its row onto the bet slip, to add it. Uses the filters below. In the backtest the Kalshi price alone beat every model blend, so a big "edge" often means the model is missing news (an injury, a role change) the market already has. Kalshi also tends to price OVERs a few points higher than the model, so most value picks are UNDERs. Treat an edge as a lead to check, not a sure thing.</p>
   </section>
 
   <section class="panel">
@@ -294,7 +302,7 @@
         <li><b>Target probability</b> — the "Target probability (%)" line mode moves each player's PRA line to the highest line, in steps of 1, where the over still has at least that chance (71% by default). For Kalshi-priced players the chance is Kalshi's price where it lists that line (marked "Kalshi alt line") or the Kalshi-implied distribution between its lines. For everyone else it is the calibrated model. The ±line buttons still work on top. The "71%+ on Kalshi lines" list under Best prop picks does the same across points, rebounds, assists and PRA, OVER or UNDER, keeping only Kalshi lines where both Kalshi and the model clear the target. A higher target means safer legs that pay less.</li>
         <li><b>Backtest</b> — settings were chosen by replaying all of 2025-26 (about 20,000 player-games), predicting each game from earlier games only (backtest.py). Prior strength and recency were tuned there, and the splits were switched off there.</li>
         <li><b>Simple and Detailed views</b> — Simple shows what you need to pick: projection, line, chance of going over, and Over / Under buttons. Detailed adds the model's inputs: Kalshi props, minutes, season rate (the Bayesian per-minute rate), form against last season, opponent pace and defense, and home/away. The choice is remembered in this browser.</li>
-        <li><b>Bet slip</b> — click Over or Under on any player, any pick under Best prop picks, the Top 10 card's add button, or "Use as slip" on a suggested combo. Each leg keeps the line it was added at, priced the same way as the table (Kalshi's price where it lists that line). Hit chance multiplies the legs, so it assumes they're independent; the slip warns when two legs share a game, because those results move together. Fair payout is 1 ÷ hit chance. The slip is saved in this browser for that date.</li>
+        <li><b>Bet slip</b> — click Over or Under on any player, click or drag any pick under Best prop picks (Best value, Highest probability, and the target-probability list), the Top 10 card's add button, or "Use as slip" on a suggested combo. Each leg keeps the line it was added at, priced the same way as the table (Kalshi's price where it lists that line). Hit chance multiplies the legs, so it assumes they're independent; the slip warns when two legs share a game, because those results move together. Fair payout is 1 ÷ hit chance. The slip is saved in this browser for that date.</li>
         <li><b>Combos</b> — each leg is an OVER or UNDER call on the player's current line, whichever side the model favors. <i>Low Risk - Low Reward</i> takes the most confident calls. Each bucket suggests 2 combos of 3 players. <i>High Risk - High Reward</i> takes volatile players (above-median spread) with a 55–70% lean, ranked by the size of the projected edge. Suggested combos use at most one player per team and two per game. You can flip a pick, replace (⇄) or remove (✕) a player, add players (up to 10) or start a new combo, and the odds update. Edits are saved in this browser for that date. Hit chance multiplies the legs' probabilities, treating the games as independent. Fair payout is 1 ÷ hit chance. Kalshi-implied payout appears when every leg has a Kalshi price at its line.</li>
         <li><b>Daily refresh</b> — while the server is running it rebuilds today's slate at midnight and every day at 7:30 AM, 9 AM, 1 PM and 4 PM, the same times as the NHL dashboard. The published site is rebuilt at :00 and :35 past every hour by its own scheduled task (the NHL page updates on the half hour), while the host PC is on. An open page moves to the new day by itself and reloads every 10 minutes.</li>
       </ul>
@@ -491,8 +499,9 @@ function propsCell(p) {
   return `<div class="props">${lines.join("")}${b ? `<div class="best sub2">★ ${pickLabel(b)} <span class="${cls(b.edge * 100)}">${sgn(b.edge * 100, 0)}</span></div>` : ""}</div>`;
 }
 function pickRow(p, b, val) {
-  return `<div class="prow"><img src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'" alt="">
-    <div class="who">${esc(p.name)}<span class="sub2" style="display:block">${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)} · proj ${fmt(p[`proj_${b.stat}`] ?? p.proj)} ${STAT_NAME[b.stat]}</span></div>
+  const key = `${p.id}|${b.stat}|${b.line}|${b.side === "over" ? 1 : 0}`;
+  return `<div class="prow" draggable="true" data-drag="${key}" title="Drag onto the bet slip, or click the pick"><img src="${esc(p.headshot)}" onerror="this.style.visibility='hidden'" alt="">
+    <div class="who"><span class="grip" aria-hidden="true">⋮⋮</span>${esc(p.name)}<span class="sub2" style="display:block">${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)} · proj ${fmt(p[`proj_${b.stat}`] ?? p.proj)} ${STAT_NAME[b.stat]}</span></div>
     <button class="pick ${b.side} ${S.slip.some(l => l.id === p.id && l.stat === b.stat && l.line === b.line && l.over === (b.side === "over")) ? "on" : ""}" data-slip="${p.id}|${b.stat}|${b.line}|${b.side === "over" ? 1 : 0}" title="Add to your bet slip">${pickLabel(b)}</button>
     <b class="num">${Math.round(b.model * 100)}%</b>
     <span class="num sub2">${val ? `<span class="${cls(b.edge * 100)}">${sgn(b.edge * 100, 0)}</span>` : `mkt ${Math.round(b.mkt * 100)}%`}</span></div>`;
@@ -766,6 +775,13 @@ function slipLeg(l) {
   }
   return { p, prob: l.over ? over : 1 - over, mkt: mkt == null ? null : (l.over ? mkt : 1 - mkt), src };
 }
+// Add (or switch the side of) a leg without removing it, for drag and drop
+function addToSlip(id, stat, line, over) {
+  const i = S.slip.findIndex(l => l.id === id && l.stat === stat && l.line === line);
+  if (i >= 0) S.slip[i].over = over;
+  else if (S.slip.length < SLIP_MAX) S.slip.push({ id, stat, line, over });
+  S.slipOpen = true; save(); render();
+}
 function toggleSlip(id, stat, line, over) {
   const i = S.slip.findIndex(l => l.id === id && l.stat === stat && l.line === line);
   if (i >= 0 && S.slip[i].over === over) S.slip.splice(i, 1);
@@ -787,7 +803,8 @@ function renderSlip() {
   if (!legs.length) {
     el.className = S.slipOpen ? "" : "closed";
     el.innerHTML = `<button class="sh" data-sact="toggle"><b>Bet slip</b><span class="odds">empty</span></button>
-      <div class="sb"><div class="empty">Click <b>Over</b> or <b>Under</b> on any player, a pick in Best prop picks, or <b>Use as slip</b> on a suggested combo.</div></div>`;
+      <div class="dropzone">Drop here to add</div>
+      <div class="sb"><div class="empty">Click <b>Over</b> or <b>Under</b> on any player, click or drag a pick from Best prop picks, or <b>Use as slip</b> on a suggested combo.</div></div>`;
     return;
   }
   const prob = legs.reduce((a, [, x]) => a * x.prob, 1);
@@ -796,6 +813,7 @@ function renderSlip() {
   const sameGame = Object.values(games).some(n => n > 1);
   el.className = S.slipOpen ? "" : "closed";
   el.innerHTML = `<button class="sh" data-sact="toggle"><b>Bet slip · ${legs.length}</b><span class="odds">hit chance <b>${(prob * 100).toFixed(1)}%</b> · <b>${(1 / prob).toFixed(1)}x</b> ${S.slipOpen ? "▾" : "▴"}</span></button>
+    <div class="dropzone">Drop here to add</div>
     <div class="sb">
       ${legs.map(([l, x], i) => `<div class="sl">
         <div class="who">${esc(x.p.name)}<span class="sub2" style="display:block">${esc(x.p.team)} ${x.p.home ? "vs" : "@"} ${esc(x.p.opp)} · ${x.src}</span></div>
@@ -812,6 +830,30 @@ function renderSlip() {
       <div class="acts2"><button data-sact="clear">Clear slip</button></div>
     </div>`;
 }
+// Drag a pick row onto the slip
+document.addEventListener("dragstart", e => {
+  const row = e.target.closest && e.target.closest("[data-drag]"); if (!row) return;
+  e.dataTransfer.setData("text/plain", row.dataset.drag);
+  e.dataTransfer.effectAllowed = "copy";
+  row.classList.add("dragging");
+  document.body.classList.add("drag-on");
+});
+document.addEventListener("dragend", e => {
+  const row = e.target.closest && e.target.closest("[data-drag]");
+  if (row) row.classList.remove("dragging");
+  document.body.classList.remove("drag-on");
+  $("slip").classList.remove("drop");
+});
+$("slip").addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; $("slip").classList.add("drop"); });
+$("slip").addEventListener("dragleave", e => { if (!$("slip").contains(e.relatedTarget)) $("slip").classList.remove("drop"); });
+$("slip").addEventListener("drop", e => {
+  e.preventDefault();
+  document.body.classList.remove("drag-on");
+  $("slip").classList.remove("drop");
+  const key = e.dataTransfer.getData("text/plain") || "";
+  const [id, stat, line, over] = key.split("|");
+  if (S.byId[id] && STAT_NAME[stat]) addToSlip(id, stat, parseFloat(line), over === "1");
+});
 $("slip").addEventListener("click", e => {
   const b = e.target.closest("[data-sact]"); if (!b) return;
   const a = b.dataset.sact, i = +b.dataset.i;
